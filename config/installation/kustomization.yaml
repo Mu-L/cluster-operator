@@ -19,3 +19,4 @@ resources:
 - ../crd/
 - ../rbac/
 - ../manager/
+- metrics_service.yaml

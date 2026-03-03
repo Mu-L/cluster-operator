@@ -26,15 +26,147 @@ __check_defined = \
                 required by target '$@')))
 ###
 
-# The latest 1.25 available for envtest
-ENVTEST_K8S_VERSION ?= 1.29.5
-LOCAL_TESTBIN = $(CURDIR)/testbin
-$(LOCAL_TESTBIN):
-	mkdir -p $@
+##@ Dependencies
+
+## Location to install dependencies to
+LOCALBIN ?= $(shell pwd)/bin
+$(LOCALBIN):
+	mkdir -p "$(LOCALBIN)"
 
 LOCAL_TMP := $(CURDIR)/tmp
 $(LOCAL_TMP):
-	mkdir -p $@
+	mkdir -p -v $(@)
+
+## Tool Binaries
+KUBECTL ?= kubectl
+KIND ?= kind
+KUSTOMIZE ?= $(LOCALBIN)/kustomize
+CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
+ENVTEST ?= $(LOCALBIN)/setup-envtest
+GINKGO_CLI ?= $(LOCALBIN)/ginkgo
+GOVULNCHECK ?= $(LOCALBIN)/govulncheck
+CRD_REF_DOCS ?= $(LOCALBIN)/crd-ref-docs
+YJ ?= $(LOCALBIN)/yj
+YTT ?= $(LOCALBIN)/ytt
+CMCTL ?= $(LOCALBIN)/cmctl
+
+## Tool Versions
+KUSTOMIZE_VERSION ?= v5.7.1
+CONTROLLER_TOOLS_VERSION ?= v0.20.0
+GOVULNCHECK_VERSION ?= v1.1.4
+CRD_REF_DOCS_VERSION ?= v0.3.0
+YJ_VERSION ?= v5.1.0
+YTT_VERSION ?= v0.53.2
+CMCTL_VERSION ?= v2.1.0
+CERT_MANAGER_VERSION ?= v1.15.1
+
+# go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
+# $1 - target path with name of binary
+# $2 - package url which can be installed
+# $3 - specific version of package
+define go-install-tool
+@[ -f "$(1)-$(3)" ] && [ "$$(readlink -- "$(1)" 2>/dev/null)" = "$(1)-$(3)" ] || { \
+set -e; \
+package=$(2)@$(3) ;\
+echo "Downloading $${package}" ;\
+rm -f "$(1)" ;\
+GOBIN="$(LOCALBIN)" go install $${package} ;\
+mv "$(LOCALBIN)/$$(basename "$(1)")" "$(1)-$(3)" ;\
+} ;\
+ln -sf "$$(realpath "$(1)-$(3)")" "$(1)"
+endef
+
+define gomodver
+$(shell go list -m -f '{{if .Replace}}{{.Replace.Version}}{{else}}{{.Version}}{{end}}' $(1) 2>/dev/null)
+endef
+
+# Determine GINKGO_VERSION from the go.mod file to keep CLI and code in sync
+GINKGO_VERSION := $(shell v='$(call gomodver,github.com/onsi/ginkgo/v2)'; \
+  [ -n "$$v" ] || { echo "Could not determine GINKGO_VERSION" >&2; exit 1; }; \
+  printf '%s\n' "$$v")
+
+# ENVTEST_VERSION is the version of controller-runtime release branch to fetch the envtest setup script (i.e. release-0.20)
+ENVTEST_VERSION := $(shell v='$(call gomodver,sigs.k8s.io/controller-runtime)'; \
+  [ -n "$$v" ] || { echo "Set ENVTEST_VERSION manually (controller-runtime replace has no tag)" >&2; exit 1; }; \
+  printf '%s\n' "$$v" | sed -E 's/^v?([0-9]+)\.([0-9]+).*/release-\1.\2/')
+
+# ENVTEST_K8S_VERSION is the version of Kubernetes to use for setting up ENVTEST binaries (i.e. 1.31)
+ENVTEST_K8S_VERSION := $(shell v='$(call gomodver,k8s.io/api)'; \
+  [ -n "$$v" ] || { echo "Set ENVTEST_K8S_VERSION manually (k8s.io/api replace has no tag)" >&2; exit 1; }; \
+  printf '%s\n' "$$v" | sed -E 's/^v?[0-9]+\.([0-9]+).*/1.\1/')
+
+LOCAL_TESTBIN = $(CURDIR)/testbin
+
+##@ Tools
+
+.PHONY: kustomize
+kustomize: $(KUSTOMIZE) ## Download kustomize locally if necessary.
+$(KUSTOMIZE): $(LOCALBIN)
+	$(call go-install-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v5,$(KUSTOMIZE_VERSION))
+
+.PHONY: controller-gen
+controller-gen: $(CONTROLLER_GEN) ## Download controller-gen locally if necessary.
+$(CONTROLLER_GEN): $(LOCALBIN)
+	$(call go-install-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen,$(CONTROLLER_TOOLS_VERSION))
+
+.PHONY: setup-envtest
+setup-envtest: envtest ## Download the binaries required for ENVTEST in the local testbin directory.
+	@echo "Setting up envtest binaries for Kubernetes version $(ENVTEST_K8S_VERSION)..."
+	@"$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir "$(LOCAL_TESTBIN)" -p path || { \
+		echo "Error: Failed to set up envtest binaries for version $(ENVTEST_K8S_VERSION)."; \
+		exit 1; \
+	}
+
+.PHONY: envtest
+envtest: $(ENVTEST) ## Download setup-envtest locally if necessary.
+$(ENVTEST): $(LOCALBIN)
+	$(call go-install-tool,$(ENVTEST),sigs.k8s.io/controller-runtime/tools/setup-envtest,$(ENVTEST_VERSION))
+
+.PHONY: ginkgo-cli
+ginkgo-cli: $(GINKGO_CLI) ## Download ginkgo CLI locally if necessary.
+$(GINKGO_CLI): $(LOCALBIN)
+	$(call go-install-tool,$(GINKGO_CLI),github.com/onsi/ginkgo/v2/ginkgo,$(GINKGO_VERSION))
+
+.PHONY: govulncheck
+govulncheck: $(GOVULNCHECK) ## Download govulncheck locally if necessary.
+$(GOVULNCHECK): $(LOCALBIN)
+	$(call go-install-tool,$(GOVULNCHECK),golang.org/x/vuln/cmd/govulncheck,$(GOVULNCHECK_VERSION))
+
+.PHONY: crd-ref-docs
+crd-ref-docs: $(CRD_REF_DOCS) ## Download crd-ref-docs locally if necessary.
+$(CRD_REF_DOCS): $(LOCALBIN)
+	$(call go-install-tool,$(CRD_REF_DOCS),github.com/elastic/crd-ref-docs,$(CRD_REF_DOCS_VERSION))
+
+.PHONY: yj
+yj: $(YJ) ## Download yj (YAML/JSON converter) locally if necessary.
+$(YJ): $(LOCALBIN)
+	$(call go-install-tool,$(YJ),github.com/sclevine/yj/v5,$(YJ_VERSION))
+
+# https://github.com/carvel-dev/ytt/releases
+.PHONY: ytt
+ytt: $(YTT) ## Download ytt locally if necessary.
+$(YTT): $(LOCALBIN)
+	@[ -f "$(YTT)-$(YTT_VERSION)-$(platform)-$(ARCHITECTURE)" ] && [ "$$(readlink -- "$(YTT)" 2>/dev/null)" = "$(YTT)-$(YTT_VERSION)-$(platform)-$(ARCHITECTURE)" ] || { \
+		printf "Downloading and installing Carvel YTT\n"; \
+		curl -sSL -o "$(YTT)-$(YTT_VERSION)-$(platform)-$(ARCHITECTURE)" https://github.com/carvel-dev/ytt/releases/download/$(YTT_VERSION)/ytt-$(platform)-$(ARCHITECTURE); \
+		chmod +x "$(YTT)-$(YTT_VERSION)-$(platform)-$(ARCHITECTURE)"; \
+		printf "Carvel YTT $(YTT_VERSION) installed locally\n"; \
+	}; \
+	ln -sf "$$(realpath "$(YTT)-$(YTT_VERSION)-$(platform)-$(ARCHITECTURE)")" "$(YTT)"
+
+# https://github.com/cert-manager/cmctl/releases
+.PHONY: cmctl
+cmctl: $(CMCTL) ## Download cmctl locally if necessary.
+$(CMCTL): $(LOCALBIN) $(LOCAL_TMP)
+	curl -sSL -o $(LOCAL_TMP)/cmctl.tar.gz https://github.com/cert-manager/cmctl/releases/download/$(CMCTL_VERSION)/cmctl_$(platform)_$(ARCHITECTURE).tar.gz
+	tar -C $(LOCAL_TMP) -xzf $(LOCAL_TMP)/cmctl.tar.gz
+	mv $(LOCAL_TMP)/cmctl $(CMCTL)
+
+.PHONY: install-tools
+install-tools: kustomize controller-gen envtest ginkgo-cli govulncheck crd-ref-docs yj ytt ## Install all tooling required to configure and build this repo
+	@echo "All tools installed successfully"
+
+##@ Testing
 
 K8S_OPERATOR_NAMESPACE ?= rabbitmq-system
 SYSTEM_TEST_NAMESPACE ?= rabbitmq-system
@@ -42,58 +174,76 @@ SYSTEM_TEST_NAMESPACE ?= rabbitmq-system
 # "Control plane binaries (etcd and kube-apiserver) are loaded by default from /usr/local/kubebuilder/bin.
 # This can be overridden by setting the KUBEBUILDER_ASSETS environment variable"
 # https://pkg.go.dev/sigs.k8s.io/controller-runtime/pkg/envtest
-export KUBEBUILDER_ASSETS = $(LOCAL_TESTBIN)/k8s/$(ENVTEST_K8S_VERSION)-$(platform)-$(ARCHITECTURE)
-
-$(KUBEBUILDER_ASSETS):
-	setup-envtest -v info --os $(platform) --arch $(ARCHITECTURE) --bin-dir $(LOCAL_TESTBIN) use $(ENVTEST_K8S_VERSION)
+# Note: setup-envtest returns the full path including patch version (e.g., 1.35.0), so we capture it dynamically
+KUBEBUILDER_ASSETS_PATH = $(shell "$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCAL_TESTBIN) -p path 2>/dev/null || echo "$(LOCAL_TESTBIN)/k8s/$(ENVTEST_K8S_VERSION)-$(platform)-$(ARCHITECTURE)")
+export KUBEBUILDER_ASSETS = $(KUBEBUILDER_ASSETS_PATH)
 
 .PHONY: kubebuilder-assets
-kubebuilder-assets: $(KUBEBUILDER_ASSETS)
-	@echo "export KUBEBUILDER_ASSETS=$(KUBEBUILDER_ASSETS)"
+kubebuilder-assets: $(ENVTEST) ## Download and set up kubebuilder test assets
+	@echo "Setting up kubebuilder assets..."
+	@mkdir -p $(LOCAL_TESTBIN)
+	@path="$$("$(ENVTEST)" use $(ENVTEST_K8S_VERSION) --bin-dir $(LOCAL_TESTBIN) -p path)"; \
+	if [ -n "$$path" ] && [ -d "$$path" ]; then \
+		chmod -R +w "$$path" 2>/dev/null || true; \
+		echo "Kubebuilder assets ready at: $$path"; \
+		echo "export KUBEBUILDER_ASSETS=$$path"; \
+	else \
+		echo "Error: Failed to set up kubebuilder assets" >&2; \
+		exit 1; \
+	fi
 
-.PHONY: kubebuilder-assets-rm
-kubebuilder-assets-rm:
-	setup-envtest -v debug --os $(platform) --arch $(ARCHITECTURE) --bin-dir $(LOCAL_TESTBIN) cleanup
+.PHONY: clean-testbin
+clean-testbin: ## Clean testbin directory (fixes permission issues)
+	@echo "Cleaning testbin directory..."
+	@if [ -d "$(LOCAL_TESTBIN)" ]; then \
+		chmod -R +w $(LOCAL_TESTBIN) 2>/dev/null || true; \
+		rm -rf $(LOCAL_TESTBIN); \
+		echo "testbin directory cleaned"; \
+	else \
+		echo "testbin directory does not exist"; \
+	fi
+
 
 .PHONY: unit-tests
-unit-tests::install-tools
-unit-tests::$(KUBEBUILDER_ASSETS)
+unit-tests::controller-gen ## Run unit tests
+unit-tests::kubebuilder-assets
 unit-tests::generate
 unit-tests::fmt
 unit-tests::vet
-unit-tests::vuln
 unit-tests::manifests
-unit-tests::just-unit-tests ## Run unit tests
+unit-tests::just-unit-tests
 
-GINKGO ?= go run github.com/onsi/ginkgo/v2/ginkgo
 GINKGO_PROCS ?= 4
 
 .PHONY: just-unit-tests
-just-unit-tests:
-	$(GINKGO) -r -p --randomize-all --fail-on-pending --procs=$(GINKGO_PROCS) $(GINKGO_EXTRA) api/ internal/ pkg/
+just-unit-tests: ## Run just unit tests without regenerating code
+	$(GINKGO_CLI) -r -p --randomize-all --fail-on-pending --procs=$(GINKGO_PROCS) --label-filter="!integration" $(GINKGO_EXTRA) api/ internal/ pkg/
 
 .PHONY: integration-tests
-integration-tests::install-tools
-integration-tests::$(KUBEBUILDER_ASSETS)
+integration-tests::controller-gen ## Run integration tests
+integration-tests::kubebuilder-assets
 integration-tests::generate
 integration-tests::fmt
 integration-tests::vet
-integration-tests::vuln
 integration-tests::manifests
-integration-tests::just-integration-tests ## Run integration tests
+integration-tests::just-integration-tests
 
 .PHONY: just-integration-tests
-just-integration-tests:
-	$(GINKGO) -r -p --fail-on-pending --randomize-all --procs=$(GINKGO_PROCS) $(GINKGO_EXTRA) controllers/
+just-integration-tests: kubebuilder-assets ## Run just integration tests without regenerating code
+	$(GINKGO_CLI) -r -p --fail-on-pending --randomize-all --procs=$(GINKGO_PROCS) --label-filter="integration" $(GINKGO_EXTRA) internal/controller/
 
-manifests: install-tools ## Generate manifests e.g. CRD, RBAC etc.
-	controller-gen crd rbac:roleName=operator-role paths="./api/...;./controllers/..." output:crd:artifacts:config=config/crd/bases
+##@ Development
+
+.PHONY: manifests
+manifests: controller-gen ## Generate manifests e.g. CRD, RBAC etc.
+	"$(CONTROLLER_GEN)" crd rbac:roleName=rabbitmq-cluster-operator-role paths="./api/...;./internal/controller/..." output:crd:artifacts:config=config/crd/bases
 	./hack/remove-override-descriptions.sh
 	./hack/add-notice-to-yaml.sh config/rbac/role.yaml
 	./hack/add-notice-to-yaml.sh config/crd/bases/rabbitmq.com_rabbitmqclusters.yaml
 
-api-reference: install-tools ## Generate API reference documentation
-	crd-ref-docs \
+.PHONY: api-reference
+api-reference: crd-ref-docs ## Generate API reference documentation
+	"$(CRD_REF_DOCS)" \
 		--source-path ./api/v1beta1 \
 		--config ./docs/api/autogen/config.yaml \
 		--templates-dir ./docs/api/autogen/templates \
@@ -101,50 +251,51 @@ api-reference: install-tools ## Generate API reference documentation
 		--max-depth 30
 
 .PHONY: checks
-checks::fmt ## Runs fmt + vet +govulncheck against the current code
+checks::fmt ## Runs fmt + vet + govulncheck against the current code
 checks::vet
 checks::vuln
 
 # Run go fmt against code
-fmt:
+.PHONY: fmt
+fmt: ## Run go fmt against code
 	go fmt ./...
 
 # Run go vet against code
-vet:
+.PHONY: vet
+vet: ## Run go vet against code
 	go vet ./...
 
 # Run govulncheck against code
-vuln:
-	govulncheck ./...
+.PHONY: vuln
+vuln: govulncheck ## Run govulncheck against code
+	"$(GOVULNCHECK)" ./...
 
 # Generate code & docs
-generate: install-tools api-reference
-	controller-gen object:headerFile=./hack/NOTICE.go.txt paths=./api/...
-	controller-gen object:headerFile=./hack/NOTICE.go.txt paths=./internal/status/...
+.PHONY: generate
+generate: controller-gen api-reference ## Generate code containing DeepCopy, DeepCopyInto, and DeepCopyObject method implementations
+	"$(CONTROLLER_GEN)" object:headerFile=./hack/NOTICE.go.txt paths=./api/...
+	"$(CONTROLLER_GEN)" object:headerFile=./hack/NOTICE.go.txt paths=./internal/status/...
 
 # Build manager binary
 manager: generate checks
-	go mod download
-	go build -o bin/manager main.go
+	go build -o bin/manager ./cmd
 
-deploy-manager:  ## Deploy manager
-	kustomize build config/crd | kubectl apply -f -
-	kustomize build config/default/base | kubectl apply -f -
+deploy-manager: kustomize ytt ## Deploy manager
+	"$(KUSTOMIZE)" build config/default | $(KUBECTL) apply -f -
 
-deploy-manager-dev:
+deploy-manager-dev: kustomize ytt
 	@$(call check_defined, OPERATOR_IMAGE, path to the Operator image within the registry e.g. rabbitmq/cluster-operator)
 	@$(call check_defined, DOCKER_REGISTRY_SERVER, URL of docker registry containing the Operator image e.g. registry.my-company.com)
-	kustomize build config/crd | kubectl apply -f -
-	kustomize build config/default/overlays/dev | sed 's@((operator_docker_image))@"$(DOCKER_REGISTRY_SERVER)/$(OPERATOR_IMAGE):$(GIT_COMMIT)"@' | kubectl apply -f -
+	"$(KUSTOMIZE)" build config/default \
+	| "$(YTT)" -f - -f config/ytt/overlay-manager-image.yaml \
+		--data-value operator_image="$(DOCKER_REGISTRY_SERVER)/$(OPERATOR_IMAGE):$(GIT_COMMIT)" \
+	| $(KUBECTL) apply -f -
 
-deploy-sample: ## Deploy RabbitmqCluster defined in config/sample/base
-	kustomize build config/samples/base | kubectl apply -f -
+deploy-sample: kustomize ## Deploy RabbitmqCluster defined in config/sample
+	"$(KUSTOMIZE)" build config/samples | $(KUBECTL) apply -f -
 
-destroy: ## Cleanup all controller artefacts
-	kustomize build config/crd/ | kubectl delete --ignore-not-found=true -f -
-	kustomize build config/default/base/ | kubectl delete --ignore-not-found=true -f -
-	kustomize build config/rbac/ | kubectl delete --ignore-not-found=true -f -
-	kustomize build config/namespace/base/ | kubectl delete --ignore-not-found=true -f -
+destroy: kustomize ## Cleanup all controller artefacts
+	"$(KUSTOMIZE)" build config/default | $(KUBECTL) delete --ignore-not-found=true -f -
 
 .PHONY: run
 run::generate ## Run operator binary locally against the configured Kubernetes cluster in ~/.kube/config
@@ -154,20 +305,42 @@ run::install
 run::deploy-namespace-rbac
 run::just-run
 
-just-run: ## Just runs 'go run main.go' without regenerating any manifests or deploying RBACs
-	KUBECONFIG=${HOME}/.kube/config OPERATOR_NAMESPACE=$(K8S_OPERATOR_NAMESPACE) ENABLE_DEBUG_PPROF=true go run ./main.go -metrics-bind-address 127.0.0.1:9782 --zap-devel $(OPERATOR_ARGS)
+just-run: ## Just runs 'go run ./cmd' without regenerating any manifests or deploying RBACs
+	KUBECONFIG=${HOME}/.kube/config OPERATOR_NAMESPACE=$(K8S_OPERATOR_NAMESPACE) ENABLE_DEBUG_PPROF=true go run ./cmd -metrics-bind-address 127.0.0.1:9782 --zap-devel $(OPERATOR_ARGS)
 
 install: manifests ## Install CRDs into a cluster
-	kubectl apply -f config/crd/bases
+	$(KUBECTL) apply -f config/crd/bases
 
-deploy-namespace-rbac:
-	kustomize build config/namespace/base | kubectl apply -f -
-	kustomize build config/rbac | kubectl apply -f -
+deploy-namespace-rbac: kustomize
+	"$(KUSTOMIZE)" build config/namespace/base | $(KUBECTL) apply -f -
+	"$(KUSTOMIZE)" build config/rbac | $(KUBECTL) apply -f -
+
+# IMG is the image to deploy when using `make deploy`
+IMG ?= ghcr.io/rabbitmq/cluster-operator:latest
 
 .PHONY: deploy
-deploy::manifests ## Deploy operator in the configured Kubernetes cluster in ~/.kube/config
-deploy::deploy-namespace-rbac
-deploy::deploy-manager
+deploy: manifests kustomize ytt ## Deploy operator in the configured Kubernetes cluster in ~/.kube/config
+	"$(KUSTOMIZE)" build config/default | \
+		"$(YTT)" -f - -f config/ytt/overlay-manager-image.yaml --data-value operator_image=$(IMG) | \
+		$(KUBECTL) apply -f -
+
+.PHONY: undeploy
+undeploy: kustomize ## Undeploy controller from the K8s cluster specified in ~/.kube/config
+	"$(KUSTOMIZE)" build config/default | $(KUBECTL) delete --ignore-not-found=true -f -
+
+.PHONY: deploy-secure-metrics
+deploy-secure-metrics: manifests kustomize ytt ## Deploy operator with HTTPS metrics (requires cert-manager)
+	"$(KUSTOMIZE)" build config/overlays/metrics-https | \
+		"$(YTT)" -f - -f config/ytt/overlay-manager-image.yaml --data-value operator_image=$(IMG) | \
+		$(KUBECTL) apply -f -
+
+.PHONY: undeploy-secure-metrics
+undeploy-secure-metrics: kustomize ## Undeploy controller with secure metrics
+	"$(KUSTOMIZE)" build config/overlays/metrics-https | $(KUBECTL) delete --ignore-not-found=true -f -
+
+.PHONY: uninstall
+uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config
+	$(KUBECTL) delete -f config/crd --ignore-not-found=true
 
 .PHONY: deploy-dev
 deploy-dev::docker-build-dev ## Deploy operator in the configured Kubernetes cluster in ~/.kube/config, with local changes
@@ -180,34 +353,28 @@ deploy-dev::deploy-manager-dev
 CONTAINER ?= docker
 
 GIT_COMMIT := $(shell git rev-parse --short HEAD)
-deploy-kind: manifests deploy-namespace-rbac ## Load operator image and deploy operator into current KinD cluster
+deploy-kind: manifests kustomize ytt ## Load operator image and deploy operator into current KinD cluster
 	@$(call check_defined, OPERATOR_IMAGE, path to the Operator image within the registry e.g. rabbitmq/cluster-operator)
 	@$(call check_defined, DOCKER_REGISTRY_SERVER, URL of docker registry containing the Operator image e.g. registry.my-company.com)
 	$(CONTAINER) buildx build --build-arg=DOCKER_REGISTRY=$(DOCKER_REGISTRY_SERVER) --build-arg=GIT_COMMIT=$(GIT_COMMIT) -t $(DOCKER_REGISTRY_SERVER)/$(OPERATOR_IMAGE):$(GIT_COMMIT) .
-	kind load docker-image $(DOCKER_REGISTRY_SERVER)/$(OPERATOR_IMAGE):$(GIT_COMMIT)
-	kustomize build config/crd | kubectl apply -f -
-	kustomize build config/default/overlays/kind | sed 's@((operator_docker_image))@"$(DOCKER_REGISTRY_SERVER)/$(OPERATOR_IMAGE):$(GIT_COMMIT)"@' | kubectl apply -f -
-
-YTT_VERSION ?= v0.50.0
-YTT = $(LOCAL_TESTBIN)/ytt
-$(YTT): | $(LOCAL_TESTBIN)
-	mkdir -p $(LOCAL_TESTBIN)
-	curl -sSL -o $(YTT) https://github.com/carvel-dev/ytt/releases/download/$(YTT_VERSION)/ytt-$(platform)-$(ARCHITECTURE)
-	chmod +x $(YTT)
+	$(KIND) load docker-image $(DOCKER_REGISTRY_SERVER)/$(OPERATOR_IMAGE):$(GIT_COMMIT)
+	"$(KUSTOMIZE)" build config/default | \
+		"$(YTT)" -f - -f config/ytt/overlay-manager-image.yaml \
+			--data-value operator_image="$(DOCKER_REGISTRY_SERVER)/$(OPERATOR_IMAGE):$(GIT_COMMIT)" \
+			-f config/ytt/never_pull.yaml | \
+		$(KUBECTL) apply -f -
 
 QUAY_IO_OPERATOR_IMAGE ?= quay.io/rabbitmqoperator/cluster-operator:latest
 GHCR_IO_OPERATOR_IMAGE ?= ghcr.io/rabbitmq/cluster-operator:latest
 # Builds a single-file installation manifest to deploy the Operator
-generate-installation-manifest: | $(YTT)
+generate-installation-manifest: kustomize ytt ## Generate installation manifests
 	mkdir -p releases
-	kustomize build config/installation/ > releases/cluster-operator.yml
-	$(YTT) -f releases/cluster-operator.yml -f config/ytt/overlay-manager-image.yaml --data-value operator_image=$(QUAY_IO_OPERATOR_IMAGE) > releases/cluster-operator-quay-io.yml
-	$(YTT) -f releases/cluster-operator.yml -f config/ytt/overlay-manager-image.yaml --data-value operator_image=$(GHCR_IO_OPERATOR_IMAGE) > releases/cluster-operator-ghcr-io.yml
+	"$(KUSTOMIZE)" build config/installation/ > releases/cluster-operator.yml
+	"$(YTT)" -f releases/cluster-operator.yml -f config/ytt/overlay-manager-image.yaml --data-value operator_image=$(QUAY_IO_OPERATOR_IMAGE) > releases/cluster-operator-quay-io.yml
+	"$(YTT)" -f releases/cluster-operator.yml -f config/ytt/overlay-manager-image.yaml --data-value operator_image=$(GHCR_IO_OPERATOR_IMAGE) > releases/cluster-operator-ghcr-io.yml
 
-docker-build: ## Build the docker image with tag `latest`
-	@$(call check_defined, OPERATOR_IMAGE, path to the Operator image within the registry e.g. rabbitmq/cluster-operator)
-	@$(call check_defined, DOCKER_REGISTRY_SERVER, URL of docker registry containing the Operator image e.g. registry.my-company.com)
-	$(CONTAINER) buildx build --build-arg=DOCKER_REGISTRY=$(DOCKER_REGISTRY_SERVER) --build-arg=GIT_COMMIT=$(GIT_COMMIT) -t $(DOCKER_REGISTRY_SERVER)/$(OPERATOR_IMAGE):latest .
+docker-build: ## Build docker image with the manager. Use IMG to set image name.
+	$(CONTAINER) buildx build --build-arg=GIT_COMMIT=$(GIT_COMMIT) -t $(IMG) .
 
 docker-push: ## Push the docker image with tag `latest`
 	@$(call check_defined, OPERATOR_IMAGE, path to the Operator image within the registry e.g. rabbitmq/cluster-operator)
@@ -220,26 +387,51 @@ docker-build-dev:
 	$(CONTAINER) buildx build --build-arg=DOCKER_REGISTRY=$(DOCKER_REGISTRY_SERVER) --build-arg=GIT_COMMIT=$(GIT_COMMIT) -t $(DOCKER_REGISTRY_SERVER)/$(OPERATOR_IMAGE):$(GIT_COMMIT) .
 	$(CONTAINER) push $(DOCKER_REGISTRY_SERVER)/$(OPERATOR_IMAGE):$(GIT_COMMIT)
 
-# https://github.com/cert-manager/cmctl/releases
-# Cert Manager now publishes CMCTL independently from cert-manager
-.PHONY: cmctl
-cmctl:
-	go install github.com/cert-manager/cmctl/v2
+##@ Cert Manager
 
-CERT_MANAGER_VERSION ?= 1.15.1
 .PHONY: cert-manager
-cert-manager: cmctl ## Setup cert-manager. Use CERT_MANAGER_VERSION to customise the version e.g. CERT_MANAGER_VERSION="1.9.2"
+cert-manager: cmctl ## Setup cert-manager. Use CERT_MANAGER_VERSION to customise the version e.g. CERT_MANAGER_VERSION="v1.15.1"
 	@echo "Installing Cert Manager"
-	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v$(CERT_MANAGER_VERSION)/cert-manager.yaml
-	cmctl check api --wait=5m --namespace cert-manager
+	$(KUBECTL) apply -f https://github.com/cert-manager/cert-manager/releases/download/$(CERT_MANAGER_VERSION)/cert-manager.yaml
+	"$(CMCTL)" check api --wait=5m --namespace cert-manager
 
 .PHONY: cert-manager-rm
-cert-manager-rm:
+cert-manager-rm: ## Delete Cert Manager deployment
 	@echo "Deleting Cert Manager"
-	kubectl delete -f https://github.com/cert-manager/cert-manager/releases/download/v$(CERT_MANAGER_VERSION)/cert-manager.yaml --ignore-not-found
+	$(KUBECTL) delete -f https://github.com/cert-manager/cert-manager/releases/download/$(CERT_MANAGER_VERSION)/cert-manager.yaml --ignore-not-found
 
 system-tests: install-tools ## Run end-to-end tests against Kubernetes cluster defined in ~/.kube/config
-	NAMESPACE="$(SYSTEM_TEST_NAMESPACE)" K8S_OPERATOR_NAMESPACE="$(K8S_OPERATOR_NAMESPACE)" $(GINKGO) -nodes=3 --randomize-all -r $(GINKGO_EXTRA) system_tests/
+	NAMESPACE="$(SYSTEM_TEST_NAMESPACE)" K8S_OPERATOR_NAMESPACE="$(K8S_OPERATOR_NAMESPACE)" $(GINKGO_CLI) -nodes=3 --randomize-all -r $(GINKGO_EXTRA) system_tests/
+
+##@ E2E Testing
+
+# The default setup assumes Kind is pre-installed and builds/loads the Manager Docker image locally.
+# CertManager is installed by default; skip with:
+# - CERT_MANAGER_INSTALL_SKIP=true
+KIND_CLUSTER ?= cluster-operator-e2e
+
+.PHONY: setup-test-e2e
+setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
+	@command -v $(KIND) >/dev/null 2>&1 || { \
+		echo "Kind is not installed. Please install Kind manually."; \
+		exit 1; \
+	}
+	@case "$$($(KIND) get clusters)" in \
+		*"$(KIND_CLUSTER)"*) \
+			echo "Kind cluster '$(KIND_CLUSTER)' already exists. Skipping creation." ;; \
+		*) \
+			echo "Creating Kind cluster '$(KIND_CLUSTER)'..."; \
+			$(KIND) create cluster --name $(KIND_CLUSTER) ;; \
+	esac
+
+.PHONY: test-e2e
+test-e2e: setup-test-e2e manifests generate fmt vet ## Run the e2e tests. Expected an isolated environment using Kind.
+	KIND=$(KIND) KIND_CLUSTER=$(KIND_CLUSTER) go test -tags=e2e ./test/e2e/ -v -ginkgo.v
+	$(MAKE) cleanup-test-e2e
+
+.PHONY: cleanup-test-e2e
+cleanup-test-e2e: ## Tear down the Kind cluster used for e2e tests
+	@$(KIND) delete cluster --name $(KIND_CLUSTER)
 
 kubectl-plugin-tests: ## Run kubectl-rabbitmq tests
 	@echo "running kubectl plugin tests"
@@ -251,17 +443,11 @@ tests::integration-tests
 tests::system-tests
 tests::kubectl-plugin-tests
 
-docker-registry-secret:
+docker-registry-secret: ## Create docker registry secret in K8s cluster
 	@$(call check_defined, DOCKER_REGISTRY_SERVER, URL of docker registry containing the Operator image e.g. registry.my-company.com)
 	@$(call check_defined, DOCKER_REGISTRY_USERNAME, Username for accessing the docker registry e.g. robot-123)
 	@$(call check_defined, DOCKER_REGISTRY_PASSWORD, Password for accessing the docker registry e.g. password)
 	@$(call check_defined, DOCKER_REGISTRY_SECRET, Name of Kubernetes secret in which to store the Docker registry username and password)
 	@printf "creating registry secret and patching default service account"
-	@kubectl -n $(K8S_OPERATOR_NAMESPACE) create secret docker-registry $(DOCKER_REGISTRY_SECRET) --docker-server='$(DOCKER_REGISTRY_SERVER)' --docker-username="$$DOCKER_REGISTRY_USERNAME" --docker-password="$$DOCKER_REGISTRY_PASSWORD" || true
-	@kubectl -n $(K8S_OPERATOR_NAMESPACE) patch serviceaccount rabbitmq-cluster-operator -p '{"imagePullSecrets": [{"name": "$(DOCKER_REGISTRY_SECRET)"}]}'
-
-.PHONY: install-tools
-install-tools:
-	go install tool
-	cd internal/tools; go install tool; go tool
-	cd internal/promtool; go install tool
+	@$(KUBECTL) -n $(K8S_OPERATOR_NAMESPACE) create secret docker-registry $(DOCKER_REGISTRY_SECRET) --docker-server='$(DOCKER_REGISTRY_SERVER)' --docker-username="$$DOCKER_REGISTRY_USERNAME" --docker-password="$$DOCKER_REGISTRY_PASSWORD" || true
+	@$(KUBECTL) -n $(K8S_OPERATOR_NAMESPACE) patch serviceaccount rabbitmq-cluster-operator -p '{"imagePullSecrets": [{"name": "$(DOCKER_REGISTRY_SECRET)"}]}'
