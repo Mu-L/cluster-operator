@@ -7,10 +7,9 @@
 // This product may include a number of subcomponents with separate copyright notices and license terms. Your use of these subcomponents is subject to the terms and conditions of the subcomponent's license, as noted in the LICENSE file.
 //
 
-package system_tests
+package system_test
 
 import (
-	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -37,7 +36,6 @@ import (
 var _ = Describe("Operator", func() {
 	var (
 		namespace = MustHaveEnv("NAMESPACE")
-		ctx       = context.Background()
 	)
 
 	Context("single node cluster", func() {
@@ -49,25 +47,24 @@ var _ = Describe("Operator", func() {
 			password string
 		)
 
-		BeforeEach(func() {
+		BeforeEach(func(ctx SpecContext) {
 			cluster = newRabbitmqCluster(namespace, "basic-rabbit")
 			Expect(createRabbitmqCluster(ctx, rmqClusterClient, cluster)).To(Succeed())
 			waitForRabbitmqRunning(cluster)
 
-			hostname = kubernetesNodeIp(ctx, clientSet)
-			port = rabbitmqNodePort(ctx, clientSet, cluster, "management")
+			hostname, port = rabbitmqServiceEndpoint(ctx, clientSet, cluster, "management")
 
 			var err error
 			username, password, err = getUsernameAndPassword(ctx, clientSet, cluster.Namespace, cluster.Name)
 			Expect(err).NotTo(HaveOccurred())
-			assertHttpReady(hostname, port)
+			assertHttpReady(ctx, hostname, port)
 		})
 
-		AfterEach(func() {
-			Expect(rmqClusterClient.Delete(context.TODO(), cluster)).To(Succeed())
+		AfterEach(func(ctx SpecContext) {
+			Expect(rmqClusterClient.Delete(ctx, cluster)).To(Succeed())
 		})
 
-		It("works", func() {
+		It("works", func(ctx SpecContext) {
 			By("publishing and consuming a message", func() {
 				response := alivenessTest(hostname, port, username, password)
 				Expect(response.Status).To(Equal("ok"))
@@ -149,23 +146,23 @@ var _ = Describe("Operator", func() {
 						),
 					)
 			})
-		})
+		}, SpecTimeout(time.Minute*3))
 	})
 
 	Context("RabbitMQ configurations", func() {
 		var cluster *rabbitmqv1beta1.RabbitmqCluster
 
-		BeforeEach(func() {
+		BeforeEach(func(ctx SpecContext) {
 			cluster = newRabbitmqCluster(namespace, "config-rabbit")
 			Expect(createRabbitmqCluster(ctx, rmqClusterClient, cluster)).To(Succeed())
 			waitForRabbitmqRunning(cluster)
 		})
 
-		AfterEach(func() {
-			Expect(rmqClusterClient.Delete(context.TODO(), cluster)).To(Succeed())
+		AfterEach(func(ctx SpecContext) {
+			Expect(rmqClusterClient.Delete(ctx, cluster)).To(Succeed())
 		})
 
-		It("keeps rabbitmq server related configurations up-to-date", func() {
+		It("keeps rabbitmq server related configurations up-to-date", func(ctx SpecContext) {
 			By("updating enabled plugins  and the secret ports when additionalPlugins are modified", func() {
 				// modify rabbitmqcluster.spec.rabbitmq.additionalPlugins
 				Expect(updateRabbitmqCluster(ctx, rmqClusterClient, cluster.Name, cluster.Namespace, func(cluster *rabbitmqv1beta1.RabbitmqCluster) {
@@ -260,7 +257,7 @@ CONSOLE_LOG=new`
 				Expect(string(output)).Should(ContainSubstring("USE_LONGNAME=true"))
 				Expect(string(output)).Should(ContainSubstring("CONSOLE_LOG=new"))
 			})
-		})
+		}, SpecTimeout(time.Minute*10))
 	})
 
 	Context("Persistence", func() {
@@ -272,26 +269,25 @@ CONSOLE_LOG=new`
 			password string
 		)
 
-		BeforeEach(func() {
+		BeforeEach(func(ctx SpecContext) {
 			cluster = newRabbitmqCluster(namespace, "persistence-rabbit")
 			Expect(createRabbitmqCluster(ctx, rmqClusterClient, cluster)).To(Succeed())
 
 			waitForRabbitmqRunning(cluster)
 
-			hostname = kubernetesNodeIp(ctx, clientSet)
-			port = rabbitmqNodePort(ctx, clientSet, cluster, "management")
+			hostname, port = rabbitmqServiceEndpoint(ctx, clientSet, cluster, "management")
 
 			var err error
 			username, password, err = getUsernameAndPassword(ctx, clientSet, cluster.Namespace, cluster.Name)
 			Expect(err).NotTo(HaveOccurred())
-			assertHttpReady(hostname, port)
+			assertHttpReady(ctx, hostname, port)
 		})
 
-		AfterEach(func() {
-			Expect(rmqClusterClient.Delete(context.TODO(), cluster)).To(Succeed())
+		AfterEach(func(ctx SpecContext) {
+			Expect(rmqClusterClient.Delete(ctx, cluster)).To(Succeed())
 		})
 
-		It("persists messages", func() {
+		It("persists messages", func(ctx SpecContext) {
 			By("publishing a message", func() {
 				Expect(publishToQueue(hostname, port, username, password)).To(Succeed())
 			})
@@ -303,7 +299,7 @@ CONSOLE_LOG=new`
 
 			By("consuming a message after RabbitMQ was restarted", func() {
 				// We are asserting this in the BeforeEach. Is it necessary again here?
-				assertHttpReady(hostname, port)
+				assertHttpReady(ctx, hostname, port)
 
 				message, err := getMessageFromQueue(hostname, port, username, password)
 				Expect(err).NotTo(HaveOccurred())
@@ -317,17 +313,17 @@ CONSOLE_LOG=new`
 				Expect(pvc.OwnerReferences).To(HaveLen(1))
 				Expect(pvc.OwnerReferences[0].Name).To(Equal(cluster.Name))
 			})
-		})
+		}, SpecTimeout(time.Minute*3))
 	})
 
 	Context("Persistence expansion", Label("persistence_expansion"), func() {
 		var cluster *rabbitmqv1beta1.RabbitmqCluster
 
-		AfterEach(func() {
-			Expect(rmqClusterClient.Delete(context.TODO(), cluster)).To(Succeed())
+		AfterEach(func(ctx SpecContext) {
+			Expect(rmqClusterClient.Delete(ctx, cluster)).To(Succeed())
 		})
 
-		BeforeEach(func() {
+		BeforeEach(func(ctx SpecContext) {
 			// volume expansion is not supported in kinD which is use in github action
 			if !volumeExpansionSupported(ctx, clientSet) {
 				Skip("default storageClass does not support volume expansion; skipping volume expansion test")
@@ -343,7 +339,7 @@ CONSOLE_LOG=new`
 			waitForRabbitmqRunning(cluster)
 		})
 
-		It("allows volume expansion", func() {
+		It("allows volume expansion", func(ctx SpecContext) {
 			podUID := pod(ctx, clientSet, cluster, 0).UID
 			output, err := kubectlExec(namespace, statefulSetPodName(cluster, 0), "rabbitmq", "df", "/var/lib/rabbitmq/mnesia")
 			Expect(err).ToNot(HaveOccurred())
@@ -382,7 +378,7 @@ CONSOLE_LOG=new`
 		When("RabbitmqCluster is deployed with 3 nodes", func() {
 			var cluster *rabbitmqv1beta1.RabbitmqCluster
 
-			BeforeEach(func() {
+			BeforeEach(func(ctx SpecContext) {
 				cluster = newRabbitmqCluster(namespace, "ha-rabbit")
 				cluster.Spec.Replicas = ptr.To(int32(3))
 				cluster.Spec.Resources = &corev1.ResourceRequirements{
@@ -398,16 +394,15 @@ CONSOLE_LOG=new`
 				waitForRabbitmqRunning(cluster)
 			})
 
-			AfterEach(func() {
-				Expect(rmqClusterClient.Delete(context.TODO(), cluster)).To(Succeed())
+			AfterEach(func(ctx SpecContext) {
+				Expect(rmqClusterClient.Delete(ctx, cluster)).To(Succeed())
 			})
 
-			It("works", func() {
+			It("works", func(ctx SpecContext) {
 				username, password, err := getUsernameAndPassword(ctx, clientSet, cluster.Namespace, cluster.Name)
-				hostname := kubernetesNodeIp(ctx, clientSet)
-				port := rabbitmqNodePort(ctx, clientSet, cluster, "management")
+				hostname, port := rabbitmqServiceEndpoint(ctx, clientSet, cluster, "management")
 				Expect(err).NotTo(HaveOccurred())
-				assertHttpReady(hostname, port)
+				assertHttpReady(ctx, hostname, port)
 
 				Eventually(func() *HealthcheckResponse {
 					return alivenessTest(hostname, port, username, password)
@@ -425,24 +420,24 @@ CONSOLE_LOG=new`
 				nodes, err := rmqc.ListNodes()
 				Expect(err).NotTo(HaveOccurred())
 				Expect(nodes).To(HaveLen(3))
-			})
+			}, SpecTimeout(time.Minute*3))
 		})
 	})
 
 	Context("TLS", func() {
 		When("TLS is correctly configured and enforced", func() {
 			var (
-				cluster       *rabbitmqv1beta1.RabbitmqCluster
-				hostname      string
-				amqpsNodePort string
-				username      string
-				password      string
-				caFilePath    string
-				caCert        []byte
-				caKey         []byte
+				cluster    *rabbitmqv1beta1.RabbitmqCluster
+				hostname   string
+				amqpsPort  string
+				username   string
+				password   string
+				caFilePath string
+				caCert     []byte
+				caKey      []byte
 			)
 
-			BeforeEach(func() {
+			BeforeEach(func(ctx SpecContext) {
 				cluster = newRabbitmqCluster(namespace, "tls-test-rabbit")
 				// Enable additional plugins that can share TLS config.
 				cluster.Spec.Rabbitmq.AdditionalPlugins = []rabbitmqv1beta1.Plugin{
@@ -462,7 +457,7 @@ CONSOLE_LOG=new`
 
 				// Passing a single hostname for certificate creation
 				// the AMPQS client is connecting using the same hostname
-				hostname = kubernetesNodeIp(ctx, clientSet)
+				hostname, _ = rabbitmqServiceEndpoint(ctx, clientSet, cluster, "amqps")
 				caFilePath, caCert, caKey = createTLSSecret("rabbitmq-tls-test-secret", namespace, hostname)
 
 				// Update RabbitmqCluster with TLS secret name
@@ -477,25 +472,25 @@ CONSOLE_LOG=new`
 				Expect(err).NotTo(HaveOccurred())
 			})
 
-			AfterEach(func() {
-				Expect(rmqClusterClient.Delete(context.TODO(), cluster)).To(Succeed())
+			AfterEach(func(ctx SpecContext) {
+				Expect(rmqClusterClient.Delete(ctx, cluster)).To(Succeed())
 				Expect(k8sDeleteSecret("rabbitmq-tls-test-secret", namespace)).To(Succeed())
 			})
 
-			It("RabbitMQ responds to requests over secured protocols", func() {
+			It("RabbitMQ responds to requests over secured protocols", func(ctx SpecContext) {
 				By("talking AMQPS", func() {
-					amqpsNodePort = rabbitmqNodePort(ctx, clientSet, cluster, "amqps")
+					_, amqpsPort = rabbitmqServiceEndpoint(ctx, clientSet, cluster, "amqps")
 
 					// try to publish and consume a message on using amqps
 					sentMessage := "Hello Rabbitmq!"
-					Expect(publishToQueueAMQPS(sentMessage, username, password, hostname, amqpsNodePort, caFilePath)).To(Succeed())
-					receivedMessage, err := getMessageFromQueueAMQPS(username, password, hostname, amqpsNodePort, caFilePath)
+					Expect(publishToQueueAMQPS(sentMessage, username, password, hostname, amqpsPort, caFilePath)).To(Succeed())
+					receivedMessage, err := getMessageFromQueueAMQPS(username, password, hostname, amqpsPort, caFilePath)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(receivedMessage).To(Equal(sentMessage))
 				})
 
 				By("supporting tls cert rotation", func() {
-					oldConnectionCertificate := inspectServerCertificate(username, password, hostname, amqpsNodePort, caFilePath)
+					oldConnectionCertificate := inspectServerCertificate(username, password, hostname, amqpsPort, caFilePath)
 					oldServerCert, err := kubectlExec(cluster.Namespace, statefulSetPodName(cluster, 0), "rabbitmq", "cat", "/etc/rabbitmq-tls/tls.crt")
 					Expect(err).NotTo(HaveOccurred())
 
@@ -509,14 +504,14 @@ CONSOLE_LOG=new`
 					}, 180, 10).ShouldNot(Equal(oldServerCert))
 
 					Eventually(func() []byte {
-						newServerCertificate := inspectServerCertificate(username, password, hostname, amqpsNodePort, caFilePath)
+						newServerCertificate := inspectServerCertificate(username, password, hostname, amqpsPort, caFilePath)
 						return newServerCertificate
 					}, 180).ShouldNot(Equal(oldConnectionCertificate))
 				})
 
 				By("connecting to management API over TLS", func() {
-					managementTLSNodePort := rabbitmqNodePort(ctx, clientSet, cluster, "management-tls")
-					Expect(connectHTTPS(username, password, hostname, managementTLSNodePort, caFilePath)).To(Succeed())
+					_, managementTLSPort := rabbitmqServiceEndpoint(ctx, clientSet, cluster, "management-tls")
+					Expect(connectHTTPS(username, password, hostname, managementTLSPort, caFilePath)).To(Succeed())
 				})
 
 				By("talking MQTTS", func() {
@@ -527,7 +522,8 @@ CONSOLE_LOG=new`
 					Expect(err).NotTo(HaveOccurred())
 
 					cfg.RootCAs.AppendCertsFromPEM(ca)
-					publishAndConsumeMQTTMsg(hostname, rabbitmqNodePort(ctx, clientSet, cluster, "mqtts"), username, password, false, cfg)
+					_, mqttsPort := rabbitmqServiceEndpoint(ctx, clientSet, cluster, "mqtts")
+					publishAndConsumeMQTTMsg(hostname, mqttsPort, username, password, false, cfg)
 				})
 
 				By("talking STOMPS", func() {
@@ -538,7 +534,8 @@ CONSOLE_LOG=new`
 					Expect(err).NotTo(HaveOccurred())
 
 					cfg.RootCAs.AppendCertsFromPEM(ca)
-					publishAndConsumeSTOMPMsg(hostname, rabbitmqNodePort(ctx, clientSet, cluster, "stomps"), username, password, cfg)
+					_, stompsPort := rabbitmqServiceEndpoint(ctx, clientSet, cluster, "stomps")
+					publishAndConsumeSTOMPMsg(hostname, stompsPort, username, password, cfg)
 				})
 
 				By("disabling non TLS listeners", func() {
@@ -565,18 +562,18 @@ CONSOLE_LOG=new`
 					Expect(containsPort(ports, "mqtts")).To(BeTrue())
 					Expect(containsPort(ports, "stomps")).To(BeTrue())
 				})
-			})
+			}, SpecTimeout(time.Minute*5))
 		})
 
 		When("the TLS secret does not exist", func() {
 			cluster := newRabbitmqCluster(namespace, "tls-test-rabbit-faulty")
 			cluster.Spec.TLS = rabbitmqv1beta1.TLSSpec{SecretName: "tls-secret-does-not-exist"}
 
-			It("reports a TLSError event with the reason", func() {
+			It("reports a TLSError event with the reason", func(ctx SpecContext) {
 				Expect(createRabbitmqCluster(ctx, rmqClusterClient, cluster)).To(Succeed())
 				assertTLSError(cluster)
-				Expect(rmqClusterClient.Delete(context.TODO(), cluster)).To(Succeed())
-			})
+				Expect(rmqClusterClient.Delete(ctx, cluster)).To(Succeed())
+			}, SpecTimeout(time.Minute*5))
 		})
 	})
 
@@ -588,10 +585,10 @@ CONSOLE_LOG=new`
 			password string
 		)
 
-		BeforeEach(func() {
+		BeforeEach(func(ctx SpecContext) {
 			instanceName := "mqtt-stomp-stream"
 			cluster = newRabbitmqCluster(namespace, instanceName)
-			cluster.Spec.Service.Type = "NodePort"
+			cluster.Spec.Service.Type = getServiceType()
 			cluster.Spec.Rabbitmq.AdditionalPlugins = []rabbitmqv1beta1.Plugin{
 				"rabbitmq_mqtt",
 				"rabbitmq_web_mqtt",
@@ -611,25 +608,28 @@ CONSOLE_LOG=new`
 			waitForPortReadiness(cluster, 1883)  // mqtt
 			waitForPortReadiness(cluster, 61613) // stomp
 
-			hostname = kubernetesNodeIp(ctx, clientSet)
+			hostname, _ = rabbitmqServiceEndpoint(ctx, clientSet, cluster, "mqtt")
 			var err error
 			username, password, err = getUsernameAndPassword(ctx, clientSet, namespace, instanceName)
 			Expect(err).NotTo(HaveOccurred())
 		})
 
-		AfterEach(func() {
-			Expect(rmqClusterClient.Delete(context.TODO(), cluster)).To(Succeed())
+		AfterEach(func(ctx SpecContext) {
+			Expect(rmqClusterClient.Delete(ctx, cluster)).To(Succeed())
 		})
 
-		It("publishes and consumes a message", func() {
+		It("publishes and consumes a message", func(ctx SpecContext) {
 			By("MQTT")
-			publishAndConsumeMQTTMsg(hostname, rabbitmqNodePort(ctx, clientSet, cluster, "mqtt"), username, password, false, nil)
+			_, mqttPort := rabbitmqServiceEndpoint(ctx, clientSet, cluster, "mqtt")
+			publishAndConsumeMQTTMsg(hostname, mqttPort, username, password, false, nil)
 
 			By("MQTT-over-WebSockets")
-			publishAndConsumeMQTTMsg(hostname, rabbitmqNodePort(ctx, clientSet, cluster, "web-mqtt"), username, password, true, nil)
+			_, webMqttPort := rabbitmqServiceEndpoint(ctx, clientSet, cluster, "web-mqtt")
+			publishAndConsumeMQTTMsg(hostname, webMqttPort, username, password, true, nil)
 
 			By("STOMP")
-			publishAndConsumeSTOMPMsg(hostname, rabbitmqNodePort(ctx, clientSet, cluster, "stomp"), username, password, nil)
+			_, stompPort := rabbitmqServiceEndpoint(ctx, clientSet, cluster, "stomp")
+			publishAndConsumeSTOMPMsg(hostname, stompPort, username, password, nil)
 
 			By("Streams")
 			if !hasFeatureEnabled(cluster, "stream_queue") {
@@ -637,9 +637,10 @@ CONSOLE_LOG=new`
 			} else {
 				waitForPortConnectivity(cluster)
 				waitForPortReadiness(cluster, 5552) // stream
-				publishAndConsumeStreamMsg(hostname, rabbitmqNodePort(ctx, clientSet, cluster, "stream"), username, password)
+				_, streamPort := rabbitmqServiceEndpoint(ctx, clientSet, cluster, "stream")
+				publishAndConsumeStreamMsg(hostname, streamPort, username, password)
 			}
-		})
+		}, SpecTimeout(time.Minute*5))
 
 	})
 

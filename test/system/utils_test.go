@@ -7,7 +7,7 @@
 // This product may include a number of subcomponents with separate copyright notices and license terms. Your use of these subcomponents is subject to the terms and conditions of the subcomponent's license, as noted in the LICENSE file.
 //
 
-package system_tests
+package system_test
 
 import (
 	"bytes"
@@ -417,7 +417,7 @@ func newRabbitmqCluster(namespace, instanceName string) *rabbitmqv1beta1.Rabbitm
 		},
 		Spec: rabbitmqv1beta1.RabbitmqClusterSpec{
 			Service: rabbitmqv1beta1.RabbitmqClusterServiceSpec{
-				Type: "NodePort",
+				Type: getServiceType(),
 			},
 			// run system tests with low resources so that they can run on GitHub actions
 			Resources: &corev1.ResourceRequirements{
@@ -447,6 +447,14 @@ func newRabbitmqCluster(namespace, instanceName string) *rabbitmqv1beta1.Rabbitm
 	}
 
 	return cluster
+}
+
+func getServiceType() corev1.ServiceType {
+	serviceType := os.Getenv("RABBITMQ_SERVICE_TYPE")
+	if serviceType == "" {
+		return "NodePort" // Default to NodePort for backward compatibility
+	}
+	return corev1.ServiceType(serviceType)
 }
 
 func overrideSecurityContextForOpenshift(cluster *rabbitmqv1beta1.RabbitmqCluster) {
@@ -557,6 +565,65 @@ func rabbitmqNodePort(ctx context.Context, clientSet *kubernetes.Clientset, clus
 		}
 	}
 
+	return ""
+}
+
+// rabbitmqServiceEndpoint returns the hostname and port to access the RabbitMQ service
+// based on the service type (NodePort, LoadBalancer, or ClusterIP)
+func rabbitmqServiceEndpoint(ctx context.Context, clientSet *kubernetes.Clientset, cluster *rabbitmqv1beta1.RabbitmqCluster, portName string) (hostname, port string) {
+	service, err := clientSet.CoreV1().Services(cluster.Namespace).
+		Get(ctx, cluster.ChildResourceName(""), metav1.GetOptions{})
+	ExpectWithOffset(1, err).NotTo(HaveOccurred())
+
+	switch service.Spec.Type {
+	case corev1.ServiceTypeNodePort:
+		hostname = kubernetesNodeIp(ctx, clientSet)
+		port = rabbitmqNodePort(ctx, clientSet, cluster, portName)
+	case corev1.ServiceTypeLoadBalancer:
+		hostname = getLoadBalancerIP(ctx, clientSet, service)
+		port = getServicePort(service, portName)
+	case corev1.ServiceTypeClusterIP:
+		hostname = fmt.Sprintf("%s.%s.svc.cluster.local", service.Name, service.Namespace)
+		port = getServicePort(service, portName)
+	default:
+		Fail(fmt.Sprintf("Unsupported service type: %s", service.Spec.Type))
+	}
+
+	return hostname, port
+}
+
+// getLoadBalancerIP waits for and returns the LoadBalancer IP
+func getLoadBalancerIP(ctx context.Context, clientSet *kubernetes.Clientset, service *corev1.Service) string {
+	var lbIP string
+	EventuallyWithOffset(1, func() bool {
+		svc, err := clientSet.CoreV1().Services(service.Namespace).Get(ctx, service.Name, metav1.GetOptions{})
+		if err != nil {
+			return false
+		}
+		if len(svc.Status.LoadBalancer.Ingress) > 0 {
+			if svc.Status.LoadBalancer.Ingress[0].IP != "" {
+				lbIP = svc.Status.LoadBalancer.Ingress[0].IP
+				return true
+			}
+			if svc.Status.LoadBalancer.Ingress[0].Hostname != "" {
+				lbIP = svc.Status.LoadBalancer.Ingress[0].Hostname
+				return true
+			}
+		}
+		return false
+	}, 60, 1).Should(BeTrue(), "LoadBalancer IP not assigned")
+
+	return lbIP
+}
+
+// getServicePort returns the port number for the given port name
+func getServicePort(service *corev1.Service, portName string) string {
+	for _, port := range service.Spec.Ports {
+		if port.Name == portName {
+			return strconv.Itoa(int(port.Port))
+		}
+	}
+	ExpectWithOffset(1, false).To(BeTrue(), fmt.Sprintf("Port %s not found in service", portName))
 	return ""
 }
 
@@ -690,16 +757,30 @@ func assertTLSError(cluster *rabbitmqv1beta1.RabbitmqCluster) {
 	ExpectWithOffset(1, err).NotTo(HaveOccurred())
 }
 
-func assertHttpReady(hostname, port string) {
-	EventuallyWithOffset(1, func() (*http.Response, error) {
-		client := &http.Client{Timeout: 10 * time.Second}
-		rabbitURL := fmt.Sprintf("http://%s:%s", hostname, port)
+func assertHttpReady(ctx context.Context, hostname, port string) {
+	GinkgoWriter.Printf("[DEBUG] asserting HTTP readiness: host: %s port: %s\n", hostname, port)
+	EventuallyWithOffset(1, ctx, pollHttpPort).
+		WithTimeout(podCreationTimeout).
+		WithPolling(5*time.Second).
+		WithArguments(hostname, port).
+		Should(HaveHTTPStatus(http.StatusOK))
+}
 
-		req, err := http.NewRequest(http.MethodGet, rabbitURL, nil)
-		ExpectWithOffset(1, err).ToNot(HaveOccurred())
+func pollHttpPort(ctx context.Context, hostname, port string) (*http.Response, error) {
+	client := &http.Client{Timeout: 10 * time.Second}
+	client.CloseIdleConnections()
+	rabbitURL := fmt.Sprintf("http://%s:%s", hostname, port)
 
-		return client.Do(req)
-	}, podCreationTimeout, 5).Should(HaveHTTPStatus(http.StatusOK))
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rabbitURL, nil)
+	if err != nil {
+		GinkgoWriter.Printf("[DEBUG] error creating request: %v\n", err)
+		return nil, err
+	}
+	r, err := client.Do(req)
+	if err != nil {
+		GinkgoWriter.Printf("[DEBUG] error doing request: %v\n", err)
+	}
+	return r, err
 }
 
 func createTLSSecret(secretName, secretNamespace, hostname string) (string, []byte, []byte) {

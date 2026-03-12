@@ -315,6 +315,7 @@ jobs:
       env:
         KIND_NODE_IMAGE: ${{ env.KIND_NODE_IMAGE }}
         RABBITMQ_IMAGE: ${{ matrix.rabbitmq-image }}
+        RABBITMQ_SERVICE_TYPE: NodePort
       # 'make deploy-kind' builds the image locally. We should avoid using that target, because we have already built
       # the image in a previous job
       run: |
@@ -384,6 +385,7 @@ jobs:
       env:
         KIND_NODE_IMAGE: ${{ env.KIND_OLDEST_NODE_IMAGE }}
         RABBITMQ_IMAGE: ${{ matrix.rabbitmq-image }}
+        RABBITMQ_SERVICE_TYPE: NodePort
       # make system-tests will install required tools e.g. ginkgo
       run: |
         make cert-manager

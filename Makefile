@@ -169,7 +169,8 @@ install-tools: kustomize controller-gen envtest ginkgo-cli govulncheck crd-ref-d
 ##@ Testing
 
 K8S_OPERATOR_NAMESPACE ?= rabbitmq-system
-SYSTEM_TEST_NAMESPACE ?= rabbitmq-system
+SYSTEM_TEST_NAMESPACE ?= cluster-operator-system-tests
+RABBITMQ_SERVICE_TYPE ?= NodePort
 
 # "Control plane binaries (etcd and kube-apiserver) are loaded by default from /usr/local/kubebuilder/bin.
 # This can be overridden by setting the KUBEBUILDER_ASSETS environment variable"
@@ -358,8 +359,9 @@ deploy-kind: manifests kustomize ytt ## Load operator image and deploy operator 
 	@$(call check_defined, DOCKER_REGISTRY_SERVER, URL of docker registry containing the Operator image e.g. registry.my-company.com)
 	$(CONTAINER) buildx build --build-arg=DOCKER_REGISTRY=$(DOCKER_REGISTRY_SERVER) --build-arg=GIT_COMMIT=$(GIT_COMMIT) -t $(DOCKER_REGISTRY_SERVER)/$(OPERATOR_IMAGE):$(GIT_COMMIT) .
 	$(KIND) load docker-image $(DOCKER_REGISTRY_SERVER)/$(OPERATOR_IMAGE):$(GIT_COMMIT)
-	"$(KUSTOMIZE)" build config/default | \
-		"$(YTT)" -f - -f config/ytt/overlay-manager-image.yaml \
+	$(KUSTOMIZE) build config/namespace/base | $(KUBECTL) apply -f -
+	$(KUSTOMIZE) build config/default | \
+		$(YTT) -f - -f config/ytt/overlay-manager-image.yaml \
 			--data-value operator_image="$(DOCKER_REGISTRY_SERVER)/$(OPERATOR_IMAGE):$(GIT_COMMIT)" \
 			-f config/ytt/never_pull.yaml | \
 		$(KUBECTL) apply -f -
@@ -400,8 +402,8 @@ cert-manager-rm: ## Delete Cert Manager deployment
 	@echo "Deleting Cert Manager"
 	$(KUBECTL) delete -f https://github.com/cert-manager/cert-manager/releases/download/$(CERT_MANAGER_VERSION)/cert-manager.yaml --ignore-not-found
 
-system-tests: install-tools ## Run end-to-end tests against Kubernetes cluster defined in ~/.kube/config
-	NAMESPACE="$(SYSTEM_TEST_NAMESPACE)" K8S_OPERATOR_NAMESPACE="$(K8S_OPERATOR_NAMESPACE)" $(GINKGO_CLI) -nodes=3 --randomize-all -r $(GINKGO_EXTRA) system_tests/
+system-tests: install-tools ## Run system tests against Kubernetes cluster defined in ~/.kube/config
+	NAMESPACE="$(SYSTEM_TEST_NAMESPACE)" K8S_OPERATOR_NAMESPACE="$(K8S_OPERATOR_NAMESPACE)" RABBITMQ_SERVICE_TYPE="$(RABBITMQ_SERVICE_TYPE)" $(GINKGO_CLI) -nodes=3 --randomize-all -r $(GINKGO_EXTRA) test/system/
 
 ##@ E2E Testing
 
