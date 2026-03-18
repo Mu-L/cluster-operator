@@ -12,7 +12,7 @@ kind: Kustomization
 namespace: rabbitmq-system
 images:
 - name: rabbitmqoperator/cluster-operator-dev
-  newName: rabbitmqoperator/cluster-operator
+  newName: ghcr.io/rabbitmq/cluster-operator
   newTag: latest
 resources:
 - ../namespace/base/

@@ -371,9 +371,10 @@ GHCR_IO_OPERATOR_IMAGE ?= ghcr.io/rabbitmq/cluster-operator:latest
 # Builds a single-file installation manifest to deploy the Operator
 generate-installation-manifest: kustomize ytt ## Generate installation manifests
 	mkdir -p releases
-	"$(KUSTOMIZE)" build config/installation/ > releases/cluster-operator.yml
-	"$(YTT)" -f releases/cluster-operator.yml -f config/ytt/overlay-manager-image.yaml --data-value operator_image=$(QUAY_IO_OPERATOR_IMAGE) > releases/cluster-operator-quay-io.yml
-	"$(YTT)" -f releases/cluster-operator.yml -f config/ytt/overlay-manager-image.yaml --data-value operator_image=$(GHCR_IO_OPERATOR_IMAGE) > releases/cluster-operator-ghcr-io.yml
+	$(KUSTOMIZE) build config/installation/ > releases/cluster-operator_base.yml
+	$(YTT) -f releases/cluster-operator_base.yml -f config/ytt/overlay-manager-image.yaml --data-value operator_image=$(QUAY_IO_OPERATOR_IMAGE) > releases/cluster-operator.yml
+	$(YTT) -f releases/cluster-operator_base.yml -f config/ytt/overlay-manager-image.yaml --data-value operator_image=$(QUAY_IO_OPERATOR_IMAGE) > releases/cluster-operator-quay-io.yml
+	$(YTT) -f releases/cluster-operator_base.yml -f config/ytt/overlay-manager-image.yaml --data-value operator_image=$(GHCR_IO_OPERATOR_IMAGE) > releases/cluster-operator-ghcr-io.yml
 
 docker-build: ## Build docker image with the manager. Use IMG to set image name.
 	$(CONTAINER) buildx build --build-arg=GIT_COMMIT=$(GIT_COMMIT) -t $(IMG) .
