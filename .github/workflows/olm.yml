@@ -113,8 +113,10 @@ jobs:
         uses: actions/setup-go@v6
         with:
           go-version-file: "go.mod"
-      - name: Kubectl tool installer
-        uses: Azure/setup-kubectl@v4.0.1
+
+      # kubectl comes pre-installed in GH runners
+      # https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md
+
       - name: Setup YTT
         uses: carvel-dev/setup-action@v2.0.1
         with:
