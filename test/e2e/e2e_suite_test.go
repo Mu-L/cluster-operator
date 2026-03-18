@@ -28,7 +28,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/rabbitmq/cluster-operator/test/utils"
+	"github.com/rabbitmq/cluster-operator/v2/test/utils"
 )
 
 var (

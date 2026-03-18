@@ -20,7 +20,9 @@ jobs:
           go-version-file: go.mod
 
       - name: Install Kind via Makefile
-        run: make kind
+        run: |
+          make kind yj
+          echo "$PWD/bin" >> "$GITHUB_PATH"
 
       - name: Running Test e2e
         run: make test-e2e

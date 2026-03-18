@@ -28,7 +28,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	. "github.com/onsi/gomega/gstruct"
-	rabbitmqv1beta1 "github.com/rabbitmq/cluster-operator/api/v1beta1"
+	rabbitmqv1beta1 "github.com/rabbitmq/cluster-operator/v2/api/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/utils/ptr"
 )
@@ -455,9 +455,12 @@ CONSOLE_LOG=new`
 				Expect(createRabbitmqCluster(ctx, rmqClusterClient, cluster)).To(Succeed())
 				waitForRabbitmqRunning(cluster)
 
-				// Passing a single hostname for certificate creation
-				// the AMPQS client is connecting using the same hostname
-				hostname, _ = rabbitmqServiceEndpoint(ctx, clientSet, cluster, "amqps")
+				// At this stage, the AMQPs listener is not enabled, because we haven't set the TLS secret name.
+				// However, we need a hostname to create the TLS secret. In system tests, we access using the node IP
+				// or the load balancer IP, which may not be known in advance.
+				// As a workaround, we fetch the AMQP (plain) endpoint (i.e. node IP or load balancer IP) to create the TLS secret.
+				// Note that the hostname/IP is the same for plain and TLS endpoints.
+				hostname, _ = rabbitmqServiceEndpoint(ctx, clientSet, cluster, "amqp")
 				caFilePath, caCert, caKey = createTLSSecret("rabbitmq-tls-test-secret", namespace, hostname)
 
 				// Update RabbitmqCluster with TLS secret name
@@ -495,6 +498,14 @@ CONSOLE_LOG=new`
 					Expect(err).NotTo(HaveOccurred())
 
 					updateTLSSecret("rabbitmq-tls-test-secret", namespace, hostname, caCert, caKey)
+
+					// Trigger a rollout restart to update the mounted secret
+					// Mounted secret uses a projected volume, which is not automatically updated when the secret changes.
+					out, err := kubectl("rollout", "restart", "statefulset", cluster.ChildResourceName("server"), "-n", cluster.Namespace)
+					GinkgoWriter.Printf("rollout restart output: %s\n", out)
+					Expect(err).NotTo(HaveOccurred())
+
+					waitForRabbitmqUpdate(cluster)
 
 					// takes time for mounted secret to be updated
 					Eventually(func() []byte {

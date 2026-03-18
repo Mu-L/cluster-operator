@@ -12,7 +12,7 @@ import (
 	"os"
 	"testing"
 
-	v1beta1 "github.com/rabbitmq/cluster-operator/api/v1beta1"
+	v1beta1 "github.com/rabbitmq/cluster-operator/v2/api/v1beta1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"

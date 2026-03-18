@@ -219,7 +219,8 @@ clean-testbin: ## Clean testbin directory (fixes permission issues)
 
 
 .PHONY: unit-tests
-unit-tests::controller-gen ## Run unit tests
+unit-tests::install-tools ## Run unit tests
+unit-tests::controller-gen
 unit-tests::kubebuilder-assets
 unit-tests::generate
 unit-tests::fmt
@@ -234,7 +235,8 @@ just-unit-tests: ## Run just unit tests without regenerating code
 	$(GINKGO_CLI) -r -p --randomize-all --fail-on-pending --procs=$(GINKGO_PROCS) --label-filter="!integration" $(GINKGO_EXTRA) api/ internal/ pkg/
 
 .PHONY: integration-tests
-integration-tests::controller-gen ## Run integration tests
+integration-tests::install-tools ## Run integration tests
+integration-tests::controller-gen
 integration-tests::kubebuilder-assets
 integration-tests::generate
 integration-tests::fmt
@@ -385,7 +387,7 @@ GHCR_IO_OPERATOR_IMAGE ?= ghcr.io/rabbitmq/cluster-operator:latest
 generate-installation-manifest: kustomize ytt ## Generate installation manifests
 	mkdir -p releases
 	$(KUSTOMIZE) build config/installation/ > releases/cluster-operator_base.yml
-	$(YTT) -f releases/cluster-operator_base.yml -f config/ytt/overlay-manager-image.yaml --data-value operator_image=$(QUAY_IO_OPERATOR_IMAGE) > releases/cluster-operator.yml
+	$(YTT) -f releases/cluster-operator_base.yml -f config/ytt/overlay-manager-image.yaml --data-value operator_image=$(GHCR_IO_OPERATOR_IMAGE) > releases/cluster-operator.yml
 	$(YTT) -f releases/cluster-operator_base.yml -f config/ytt/overlay-manager-image.yaml --data-value operator_image=$(QUAY_IO_OPERATOR_IMAGE) > releases/cluster-operator-quay-io.yml
 	$(YTT) -f releases/cluster-operator_base.yml -f config/ytt/overlay-manager-image.yaml --data-value operator_image=$(GHCR_IO_OPERATOR_IMAGE) > releases/cluster-operator-ghcr-io.yml
 
