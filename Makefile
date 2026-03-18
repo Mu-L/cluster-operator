@@ -39,7 +39,7 @@ $(LOCAL_TMP):
 
 ## Tool Binaries
 KUBECTL ?= kubectl
-KIND ?= kind
+KIND ?= $(LOCALBIN)/kind
 KUSTOMIZE ?= $(LOCALBIN)/kustomize
 CONTROLLER_GEN ?= $(LOCALBIN)/controller-gen
 ENVTEST ?= $(LOCALBIN)/setup-envtest
@@ -58,6 +58,7 @@ CRD_REF_DOCS_VERSION ?= v0.3.0
 YJ_VERSION ?= v5.1.0
 YTT_VERSION ?= v0.53.2
 CMCTL_VERSION ?= v2.1.0
+KIND_VERSION ?= v0.31.0
 CERT_MANAGER_VERSION ?= v1.15.1
 
 # go-install-tool will 'go install' any package with custom target and name of binary, if it doesn't exist
@@ -162,8 +163,20 @@ $(CMCTL): $(LOCALBIN) $(LOCAL_TMP)
 	tar -C $(LOCAL_TMP) -xzf $(LOCAL_TMP)/cmctl.tar.gz
 	mv $(LOCAL_TMP)/cmctl $(CMCTL)
 
+# https://github.com/kubernetes-sigs/kind/releases
+.PHONY: kind
+kind: $(KIND) ## Download kind locally if necessary.
+$(KIND): $(LOCALBIN)
+	@[ -f "$(KIND)-$(KIND_VERSION)-$(platform)-$(ARCHITECTURE)" ] && [ "$$(readlink -- "$(KIND)" 2>/dev/null)" = "$(KIND)-$(KIND_VERSION)-$(platform)-$(ARCHITECTURE)" ] || { \
+		printf "Downloading and installing kind\n"; \
+		curl -sSL -o "$(KIND)-$(KIND_VERSION)-$(platform)-$(ARCHITECTURE)" https://github.com/kubernetes-sigs/kind/releases/download/$(KIND_VERSION)/kind-$(platform)-$(ARCHITECTURE); \
+		chmod +x "$(KIND)-$(KIND_VERSION)-$(platform)-$(ARCHITECTURE)"; \
+		printf "kind $(KIND_VERSION) installed locally\n"; \
+	}; \
+	ln -sf "$$(realpath "$(KIND)-$(KIND_VERSION)-$(platform)-$(ARCHITECTURE)")" "$(KIND)"
+
 .PHONY: install-tools
-install-tools: kustomize controller-gen envtest ginkgo-cli govulncheck crd-ref-docs yj ytt ## Install all tooling required to configure and build this repo
+install-tools: kustomize controller-gen envtest ginkgo-cli govulncheck crd-ref-docs yj ytt kind ## Install all tooling required to configure and build this repo
 	@echo "All tools installed successfully"
 
 ##@ Testing
@@ -414,11 +427,7 @@ system-tests: install-tools ## Run system tests against Kubernetes cluster defin
 KIND_CLUSTER ?= cluster-operator-e2e
 
 .PHONY: setup-test-e2e
-setup-test-e2e: ## Set up a Kind cluster for e2e tests if it does not exist
-	@command -v $(KIND) >/dev/null 2>&1 || { \
-		echo "Kind is not installed. Please install Kind manually."; \
-		exit 1; \
-	}
+setup-test-e2e: kind ## Set up a Kind cluster for e2e tests if it does not exist
 	@case "$$($(KIND) get clusters)" in \
 		*"$(KIND_CLUSTER)"*) \
 			echo "Kind cluster '$(KIND_CLUSTER)' already exists. Skipping creation." ;; \
