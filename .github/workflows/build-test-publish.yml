@@ -32,15 +32,13 @@ jobs:
     - name: Install Go
       uses: actions/setup-go@v6
       with:
-        go-version-file: bin/kubectl-rabbitmq-plugin/go.mod
+        go-version-file: kubectl-rabbitmq/go.mod
         cache-dependency-path: |
-          bin/kubectl-rabbitmq-plugin/go.sum
+          kubectl-rabbitmq/go.sum
+          kubectl-rabbitmq/go.mod
 
     - name: Install Carvel
-      uses: carvel-dev/setup-action@v2.0.1
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
-        only: ytt
+      run: make ytt
 
     - name: Download Operator artifact
       uses: actions/download-artifact@v8
@@ -56,20 +54,14 @@ jobs:
 
     - name: Deploy dev Operator
       env:
-        IMG: "rabbitmqoperator/cluster-operator:${{ needs.build_operator.outputs.image_tag }}"
+        IMG: "ghcr.io/rabbitmq/cluster-operator:${{ needs.build_operator.outputs.image_tag }}"
       run: |
         kind load image-archive ${{ runner.temp }}/operator.tar --name cluster-operator-testing
-
-        make manifests deploy-namespace-rbac
-        kubectl kustomize config/crd | kubectl apply -f-
-        kubectl kustomize config/default/base | ytt -f- \
-          -f config/ytt/overlay-manager-image.yaml \
-          --data-value operator_image="${IMG}" \
-          -f config/ytt/never_pull.yaml \
-          | kubectl apply -f-
+        kustomize build config/namespace/base | kubectl apply -f -
+        kustomize build config/default | bin/ytt -f- -f config/ytt/overlay-manager-image.yaml --data-value operator_image="${IMG}" -f config/ytt/never_pull.yaml | kubectl apply -f -
 
     - name: Test kubectl plugin
-      working-directory: bin/kubectl-rabbitmq-plugin
+      working-directory: kubectl-rabbitmq
       run: make tests TEST_TAGS=integration
 
     - name: Notify Google Chat
@@ -96,23 +88,24 @@ jobs:
     - name: Install Go
       uses: actions/setup-go@v6
       with:
-        go-version-file: bin/kubectl-rabbitmq-plugin/go.mod
+        go-version-file: kubectl-rabbitmq/go.mod
         cache-dependency-path: |
-          bin/kubectl-rabbitmq-plugin/go.sum
+          kubectl-rabbitmq/go.sum
+          kubectl-rabbitmq/go.mod
 
     - name: Build kubectl plugin
-      working-directory: bin/kubectl-rabbitmq-plugin
+      working-directory: kubectl-rabbitmq
       run: make build PLUGIN_VERSION=${{ github.ref_name }} GO_OS=${{ matrix.os }} GO_ARCH=${{ matrix.arch }}
 
     - name: Compress kubectl plugin
-      working-directory: bin/kubectl-rabbitmq-plugin
+      working-directory: kubectl-rabbitmq
       run: tar -cvzf kubectl-rabbitmq-${{ github.ref_name }}-${{ matrix.os }}-${{ matrix.arch }}.tar.gz kubectl-rabbitmq-${{ github.ref_name }}-${{ matrix.os }}-${{ matrix.arch }} ../../LICENSE.txt ../../README.md
 
     - name: Upload kubectl plugin artifact
       uses: actions/upload-artifact@v7
       with:
         name: kubectl-rabbitmq-${{ matrix.os }}-${{ matrix.arch }}
-        path: bin/kubectl-rabbitmq-plugin/kubectl-rabbitmq-${{ github.ref_name }}-${{ matrix.os }}-${{ matrix.arch }}.tar.gz
+        path: kubectl-rabbitmq/kubectl-rabbitmq-${{ github.ref_name }}-${{ matrix.os }}-${{ matrix.arch }}.tar.gz
 
   unit_integration_tests:
     name: unit and integration tests
@@ -125,9 +118,22 @@ jobs:
       uses: actions/setup-go@v6
       with:
         go-version-file: go.mod
+        
+    - name: Cache tools
+      id: cache-tools
+      uses: actions/cache@v5
+      with:
+        path: bin
+        key: ${{ runner.os }}-tools-${{ hashFiles('Makefile') }}-${{ hashFiles('go.mod') }}
+        restore-keys: |
+          ${{ runner.os }}-tools-
+
+    - name: Install tools
+      if: steps.cache-tools.outputs.cache-hit != 'true'
+      run: make install-tools
 
     - name: Unit tests
-      run: make install-tools kubebuilder-assets just-unit-tests
+      run: make kubebuilder-assets just-unit-tests
 
     - name: Integration tests
       run: make just-integration-tests
@@ -165,7 +171,6 @@ jobs:
       with:
         # list of Docker images to use as base name for tags
         images: |
-          rabbitmqoperator/cluster-operator
           quay.io/rabbitmqoperator/cluster-operator
           ghcr.io/rabbitmq/cluster-operator
         # generate Docker tags based on the following events/attributes
@@ -179,13 +184,6 @@ jobs:
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v4
-
-    - name: Login to Docker Hub
-      if: ${{ github.event_name != 'pull_request' && startsWith(github.ref, 'refs/tags/v') }}
-      uses: docker/login-action@v4
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TOKEN }}
 
     - name: Login to Quay.io
       if: ${{ github.event_name != 'pull_request' && startsWith(github.ref, 'refs/tags/v') }}
@@ -232,9 +230,8 @@ jobs:
         labels: ${{ steps.meta.outputs.labels }}
         outputs: |
           type=docker,dest=./operator.tar
-        # Workaround to "disable" cache from registry
-        cache-from: type=local,src=${{ runner.temp }}/.buildx-cache
-        cache-to: type=local,dest=${{ runner.temp }}/.buildx-cache-new,mode=min
+        # Because we are not pushing this image. Next commit, image will be different, so cache is not useful.
+        no-cache: true
 
     - name: Upload Operator artifact
       uses: actions/upload-artifact@v7
@@ -242,15 +239,23 @@ jobs:
         name: operator_image
         path: ./operator.tar
 
+    - name: Cache tools
+      id: cache-tools
+      uses: actions/cache@v5
+      with:
+        path: bin
+        key: ${{ runner.os }}-tools-${{ hashFiles('Makefile') }}-${{ hashFiles('go.mod') }}
+        restore-keys: |
+          ${{ runner.os }}-tools-
+
+    - name: Install tools
+      if: steps.cache-tools.outputs.cache-hit != 'true'
+      run: make install-tools
+
     - name: Build manifest
       env:
         RELEASE_VERSION: ${{ steps.meta.outputs.version }}
-      run: |
-        make install-tools
-        pushd config/installation
-        kustomize edit set image rabbitmqoperator/cluster-operator-dev=rabbitmqoperator/cluster-operator:"${RELEASE_VERSION}"
-        popd
-        make generate-installation-manifest QUAY_IO_OPERATOR_IMAGE=quay.io/rabbitmqoperator/cluster-operator:"${RELEASE_VERSION}" GHCR_IO_OPERATOR_IMAGE=ghcr.io/rabbitmq/cluster-operator:"${RELEASE_VERSION}"
+      run: make generate-installation-manifest QUAY_IO_OPERATOR_IMAGE=quay.io/rabbitmqoperator/cluster-operator:"${RELEASE_VERSION}" GHCR_IO_OPERATOR_IMAGE=ghcr.io/rabbitmq/cluster-operator:"${RELEASE_VERSION}"
 
     - name: Upload operator manifests
       uses: actions/upload-artifact@v7
@@ -297,7 +302,7 @@ jobs:
       uses: actions/download-artifact@v8
       with:
         name: operator_image
-        path: /tmp
+        path: ${{ runner.temp }}/operator-image
 
     - name: Install Carvel
       uses: carvel-dev/setup-action@v2.0.1
@@ -307,7 +312,7 @@ jobs:
 
     - name: Install Operator build
       run: |
-        kind load image-archive /tmp/operator.tar --name system-testing
+        kind load image-archive ${{ runner.temp }}/operator-image/operator.tar --name system-testing
         ytt -f tmp/cluster-operator.yml -f config/ytt/never_pull.yaml | kubectl apply -f-
         kubectl --namespace=rabbitmq-system wait --for=condition=Available deployment/rabbitmq-cluster-operator
 
@@ -315,6 +320,7 @@ jobs:
       env:
         KIND_NODE_IMAGE: ${{ env.KIND_NODE_IMAGE }}
         RABBITMQ_IMAGE: ${{ matrix.rabbitmq-image }}
+        RABBITMQ_SERVICE_TYPE: NodePort
       # 'make deploy-kind' builds the image locally. We should avoid using that target, because we have already built
       # the image in a previous job
       run: |
@@ -358,7 +364,7 @@ jobs:
       uses: actions/download-artifact@v8
       with:
         name: operator_image
-        path: /tmp
+        path: ${{ runner.temp }}/operator-image
 
     - name: Download Operator manifest
       uses: actions/download-artifact@v8
@@ -376,7 +382,7 @@ jobs:
 
     - name: Install Operator build
       run: |
-        kind load image-archive /tmp/operator.tar --name system-testing-oldest-k8s
+        kind load image-archive ${{ runner.temp }}/operator-image/operator.tar --name system-testing-oldest-k8s
         ytt -f tmp/cluster-operator.yml -f config/ytt/never_pull.yaml | kubectl apply -f-
         kubectl --namespace=rabbitmq-system wait --for=condition=Available deployment/rabbitmq-cluster-operator
 
@@ -384,6 +390,7 @@ jobs:
       env:
         KIND_NODE_IMAGE: ${{ env.KIND_OLDEST_NODE_IMAGE }}
         RABBITMQ_IMAGE: ${{ matrix.rabbitmq-image }}
+        RABBITMQ_SERVICE_TYPE: NodePort
       # make system-tests will install required tools e.g. ginkgo
       run: |
         make cert-manager
@@ -401,7 +408,7 @@ jobs:
       id: list_examples
       run: |
         echo -n 'examples_matrix=' >> $GITHUB_OUTPUT
-        find "$PWD/docs/examples" -mindepth 1 -type d | jq -R -s -c 'split("\n") | map(select(length > 0))' >> $GITHUB_OUTPUT
+        find "docs/examples" -mindepth 1 -type d | jq -R -s -c 'split("\n") | map(select(length > 0))' >> $GITHUB_OUTPUT
 
   test_doc_examples:
     name: Documented example tests
@@ -423,7 +430,7 @@ jobs:
       uses: actions/download-artifact@v8
       with:
         name: operator_image
-        path: /tmp
+        path: ${{ runner.temp }}/operator-image
 
     - name: Download Operator manifest
       uses: actions/download-artifact@v8
@@ -447,7 +454,7 @@ jobs:
 
     - name: Install Operator build
       run: |
-        kind load image-archive /tmp/operator.tar --name examples-testing
+        kind load image-archive ${{ runner.temp }}/operator-image/operator.tar --name examples-testing
         ytt -f tmp/cluster-operator.yml -f config/ytt/never_pull.yaml | kubectl apply -f-
         kubectl --namespace=rabbitmq-system wait --for=condition=Available deployment/rabbitmq-cluster-operator
 
@@ -499,7 +506,7 @@ jobs:
       uses: actions/download-artifact@v8
       with:
         name: operator_image
-        path: /tmp
+        path: ${{ runner.temp }}/operator-image
 
     - name: Create KinD
       uses: helm/kind-action@v1
@@ -509,7 +516,7 @@ jobs:
 
     - name: Install Operator build
       run: |
-        kind load image-archive /tmp/operator.tar --name upgrade-testing
+        kind load image-archive ${{ runner.temp }}/operator-image/operator.tar --name upgrade-testing
 
     - name: Get operator manifest
       uses: actions/download-artifact@v8
