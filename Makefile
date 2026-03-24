@@ -311,7 +311,8 @@ deploy-sample: kustomize ## Deploy RabbitmqCluster defined in config/sample
 	"$(KUSTOMIZE)" build config/samples | $(KUBECTL) apply -f -
 
 destroy: kustomize ## Cleanup all controller artefacts
-	"$(KUSTOMIZE)" build config/default | $(KUBECTL) delete --ignore-not-found=true -f -
+	$(KUSTOMIZE) build config/crd | $(KUBECTL) delete --ignore-not-found=true -f -
+	$(KUSTOMIZE) build config/default | $(KUBECTL) delete --ignore-not-found=true -f -
 
 .PHONY: run
 run::generate ## Run operator binary locally against the configured Kubernetes cluster in ~/.kube/config
@@ -356,7 +357,7 @@ undeploy-secure-metrics: kustomize ## Undeploy controller with secure metrics
 
 .PHONY: uninstall
 uninstall: manifests kustomize ## Uninstall CRDs from the K8s cluster specified in ~/.kube/config
-	$(KUBECTL) delete -f config/crd --ignore-not-found=true
+	$(KUSTOMIZE) build config/default | $(KUBECTL) delete --ignore-not-found=true -f -
 
 .PHONY: deploy-dev
 deploy-dev::docker-build-dev ## Deploy operator in the configured Kubernetes cluster in ~/.kube/config, with local changes
