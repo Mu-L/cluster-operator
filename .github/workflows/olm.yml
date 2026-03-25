@@ -53,7 +53,7 @@ jobs:
           opm: latest
 
       - name: carvel-setup-action
-        uses: carvel-dev/setup-action@v2.0.1
+        uses: carvel-dev/setup-action@v2.1.0
         with:
           token: ${{ github.token }}
           only: ytt
@@ -118,7 +118,7 @@ jobs:
       # https://github.com/actions/runner-images/blob/main/images/ubuntu/Ubuntu2404-Readme.md
 
       - name: Setup YTT
-        uses: carvel-dev/setup-action@v2.0.1
+        uses: carvel-dev/setup-action@v2.1.0
         with:
           token: ${{ github.token }}
           only: ytt, imgpkg
