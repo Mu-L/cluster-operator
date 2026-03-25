@@ -16,7 +16,7 @@ GO_BUILD_FLAGS := -s -w
 endif
 
 $(PLUGIN_NAME): *.go go.mod go.sum
-	go build -o $(PLUGIN_NAME) -ldflags "-X main.pluginVersion=$(PLUGIN_VERSION) $(GO_BUILD_FLAGS)" $(filter-out %_test.go,$(SOURCES))
+	GOOS=$(GO_OS) GOARCH=$(GO_ARCH) go build -o $(PLUGIN_NAME) -ldflags "-X main.pluginVersion=$(PLUGIN_VERSION) $(GO_BUILD_FLAGS)" $(filter-out %_test.go,$(SOURCES))
 
 .PHONY: clean
 clean:
