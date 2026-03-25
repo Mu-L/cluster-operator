@@ -1,135 +1,69 @@
-# cluster-operator
-// TODO(user): Add simple overview of use/purpose
+# RabbitMQ Cluster Kubernetes Operator
 
-## Description
-// TODO(user): An in-depth paragraph about your project and overview of use
+Kubernetes operator to deploy and manage [RabbitMQ](https://www.rabbitmq.com/) clusters. This repository contains a [custom controller](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/#custom-controllers) and [custom resource definition (CRD)](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/#customresourcedefinitions) designed for the lifecycle (creation, upgrade, graceful shutdown) of a RabbitMQ cluster.
 
-## Getting Started
+## Quickstart
 
-### Prerequisites
-- go version v1.24.6+
-- docker version 17.03+.
-- kubectl version v1.11.3+.
-- Access to a Kubernetes v1.11.3+ cluster.
+If you have a running Kubernetes cluster and `kubectl` configured to access it, run the following command to install the operator:
 
-### To Deploy on the cluster
-**Build and push your image to the location specified by `IMG`:**
-
-```sh
-make docker-build docker-push IMG=<some-registry>/cluster-operator:tag
+```bash
+kubectl apply -f https://github.com/rabbitmq/cluster-operator/releases/latest/download/cluster-operator.yml
 ```
 
-**NOTE:** This image ought to be published in the personal registry you specified.
-And it is required to have access to pull the image from the working environment.
-Make sure you have the proper permission to the registry if the above commands don’t work.
+Then you can deploy a RabbitMQ cluster:
 
-**Install the CRDs into the cluster:**
-
-```sh
-make install
+```bash
+kubectl apply -f https://raw.githubusercontent.com/rabbitmq/cluster-operator/main/docs/examples/hello-world/rabbitmq.yaml
 ```
 
-**Deploy the Manager to the cluster with the image specified by `IMG`:**
+<p align="center">
+  <img width="100%" src="./docs/demos/installation.svg">
+</p>
 
-```sh
-make deploy IMG=<some-registry>/cluster-operator:tag
-```
+## Documentation
 
-> **NOTE**: If you encounter RBAC errors, you may need to grant yourself cluster-admin
-privileges or be logged in as admin.
+RabbitMQ Cluster Kubernetes Operator is covered by several guides:
 
-**Create instances of your solution**
-You can apply the samples (examples) from the config/sample:
+ - [Operator overview](https://www.rabbitmq.com/kubernetes/operator/operator-overview)
+ - [Deploying an operator](https://www.rabbitmq.com/kubernetes/operator/install-operator)
+ - [Deploying a RabbitMQ cluster](https://www.rabbitmq.com/kubernetes/operator/using-operator)
+ - [Monitoring the cluster](https://www.rabbitmq.com/kubernetes/operator/operator-monitoring)
+ - [Troubleshooting operator deployments](https://www.rabbitmq.com/kubernetes/operator/troubleshooting-operator)
 
-```sh
-kubectl apply -k config/samples/
-```
+In addition, a number of [code examples](./docs/examples) can be found in this repository.
 
->**NOTE**: Ensure that the samples has default values to test it out.
+The doc guides are open source. The source can be found in the [RabbitMQ website repository](https://github.com/rabbitmq/rabbitmq-website/)
+under `site/kubernetes`.
 
-### To Uninstall
-**Delete the instances (CRs) from the cluster:**
+## Supported Versions
 
-```sh
-kubectl delete -k config/samples/
-```
+The operator deploys RabbitMQ `4.1.3` by default, and should work with [any supported RabbitMQ version](https://www.rabbitmq.com/release-information) and [Kubernetes version](https://kubernetes.io/releases/).
 
-**Delete the APIs(CRDs) from the cluster:**
+## Versioning
 
-```sh
-make uninstall
-```
+RabbitMQ Cluster Kubernetes Operator follows non-strict [semver](https://semver.org/).
 
-**UnDeploy the controller from the cluster:**
-
-```sh
-make undeploy
-```
-
-## Project Distribution
-
-Following the options to release and provide this solution to the users.
-
-### By providing a bundle with all YAML files
-
-1. Build the installer for the image built and published in the registry:
-
-```sh
-make build-installer IMG=<some-registry>/cluster-operator:tag
-```
-
-**NOTE:** The makefile target mentioned above generates an 'install.yaml'
-file in the dist directory. This file contains all the resources built
-with Kustomize, which are necessary to install this project without its
-dependencies.
-
-2. Using the installer
-
-Users can just run 'kubectl apply -f <URL for YAML BUNDLE>' to install
-the project, i.e.:
-
-```sh
-kubectl apply -f https://raw.githubusercontent.com/<org>/cluster-operator/<tag or branch>/dist/install.yaml
-```
-
-### By providing a Helm Chart
-
-1. Build the chart using the optional helm plugin
-
-```sh
-kubebuilder edit --plugins=helm/v2-alpha
-```
-
-2. See that a chart was generated under 'dist/chart', and users
-can obtain this solution from there.
-
-**NOTE:** If you change the project, you need to update the Helm Chart
-using the same command above to sync the latest changes. Furthermore,
-if you create webhooks, you need to use the above command with
-the '--force' flag and manually ensure that any custom configuration
-previously added to 'dist/chart/values.yaml' or 'dist/chart/manager/manager.yaml'
-is manually re-applied afterwards.
+[The versioning guidelines document](version_guidelines.md) contains guidelines
+on how we implement non-strict semver. The version number MAY or MAY NOT follow the semver rules. Hence, we highly recommend to read
+the release notes to understand the changes and their potential impact for any release.
 
 ## Contributing
-// TODO(user): Add detailed information on how you would like others to contribute to this project
 
-**NOTE:** Run `make help` for more information on all potential `make` targets
+This project follows the typical GitHub pull request model. Before starting any work, please either comment on an [existing issue](https://github.com/rabbitmq/cluster-operator/issues), or file a new one.
 
-More information can be found via the [Kubebuilder Documentation](https://book.kubebuilder.io/introduction.html)
+Please read [contribution guidelines](CONTRIBUTING.md) if you are interested in contributing to this project.
+
+## Releasing
+
+To release a new version of the Cluster Operator, create a versioned tag (e.g. `v1.2.3`) of the repo, and the release pipeline will
+generate a new draft release, alongside release artefacts.
 
 ## License
 
-Copyright 2026.
+[Licensed under the MPL-2.0](LICENSE.txt), same as RabbitMQ server.
 
-Licensed under the Apache License, Version 2.0 (the "License");
-you may not use this file except in compliance with the License.
-You may obtain a copy of the License at
+## Copyright
 
-    http://www.apache.org/licenses/LICENSE-2.0
+(c) 2007-2025 Broadcom. All Rights Reserved. The term “Broadcom” refers to Broadcom Inc. and/or its subsidiaries.
 
-Unless required by applicable law or agreed to in writing, software
-distributed under the License is distributed on an "AS IS" BASIS,
-WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-See the License for the specific language governing permissions and
-limitations under the License.
-
+[![Go Report Card](https://goreportcard.com/badge/github.com/rabbitmq/cluster-operator)](https://goreportcard.com/report/github.com/rabbitmq/cluster-operator)
