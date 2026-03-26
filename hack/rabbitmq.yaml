@@ -19,23 +19,23 @@ spec:
       matchLabels:
         os: darwin
         arch: amd64
-    {{addURIAndSha "https://github.com/rabbitmq/cluster-operator/releases/download/{{ .TagName }}/kubectl-rabbitmq-{{ .TagName }}-darwin-amd64.tar.gz" .TagName }}
-    bin: kubectl-rabbitmq-{{ .TagName }}-darwin-amd64
+    {{addURIAndSha "https://github.com/rabbitmq/cluster-operator/releases/download/{{ .TagName }}/kubectl-rabbitmq-darwin-amd64.tar.gz" .TagName }}
+    bin: kubectl-rabbitmq-darwin-amd64
   - selector:
       matchLabels:
         os: darwin
         arch: arm64
-    {{addURIAndSha "https://github.com/rabbitmq/cluster-operator/releases/download/{{ .TagName }}/kubectl-rabbitmq-{{ .TagName }}-darwin-arm64.tar.gz" .TagName }}
-    bin: kubectl-rabbitmq-{{ .TagName }}-darwin-arm64
+    {{addURIAndSha "https://github.com/rabbitmq/cluster-operator/releases/download/{{ .TagName }}/kubectl-rabbitmq-darwin-arm64.tar.gz" .TagName }}
+    bin: kubectl-rabbitmq-darwin-arm64
   - selector:
       matchLabels:
         os: linux
         arch: amd64
-    {{addURIAndSha "https://github.com/rabbitmq/cluster-operator/releases/download/{{ .TagName }}/kubectl-rabbitmq-{{ .TagName }}-linux-amd64.tar.gz" .TagName }}
-    bin: kubectl-rabbitmq-{{ .TagName }}-linux-amd64
+    {{addURIAndSha "https://github.com/rabbitmq/cluster-operator/releases/download/{{ .TagName }}/kubectl-rabbitmq-linux-amd64.tar.gz" .TagName }}
+    bin: kubectl-rabbitmq-linux-amd64
   - selector:
       matchLabels:
         os: linux
         arch: arm64
-    {{addURIAndSha "https://github.com/rabbitmq/cluster-operator/releases/download/{{ .TagName }}/kubectl-rabbitmq-{{ .TagName }}-linux-arm64.tar.gz" .TagName }}
-    bin: kubectl-rabbitmq-{{ .TagName }}-linux-arm64
+    {{addURIAndSha "https://github.com/rabbitmq/cluster-operator/releases/download/{{ .TagName }}/kubectl-rabbitmq-linux-arm64.tar.gz" .TagName }}
+    bin: kubectl-rabbitmq-linux-arm64
