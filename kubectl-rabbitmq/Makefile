@@ -2,7 +2,7 @@
 GO_OS = $(shell go env GOOS)
 GO_ARCH = $(shell go env GOARCH)
 PLUGIN_VERSION ?= dev
-PLUGIN_NAME := kubectl-rabbitmq-$(PLUGIN_VERSION)-$(GO_OS)-$(GO_ARCH)
+PLUGIN_NAME := kubectl-rabbitmq-$(GO_OS)-$(GO_ARCH)
 
 DEFAULT_GOAL := build
 SOURCES := $(wildcard *.go)
