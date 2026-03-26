@@ -42,7 +42,7 @@ updates:
   schedule:
     interval: "weekly"
 - package-ecosystem: "gomod"
-  directory: "/bin/kubectl-rabbitmq-plugin/"
+  directory: "/kubectl-rabbitmq/"
   groups:
     all:
       patterns:
