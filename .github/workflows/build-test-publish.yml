@@ -118,7 +118,7 @@ jobs:
       uses: actions/setup-go@v6
       with:
         go-version-file: go.mod
-        
+
     - name: Cache tools
       id: cache-tools
       uses: actions/cache@v5
@@ -472,6 +472,7 @@ jobs:
           kubectl create namespace examples
           kubectl config set-context --current --namespace=examples
           [[ -e setup.sh ]] && ./setup.sh
+
           kubectl apply -f rabbitmq.yaml --timeout=30s
           kubectl wait -f rabbitmq.yaml --for=condition=AllReplicasReady --timeout=5m
           kubectl wait -f rabbitmq.yaml --for=condition=ReconcileSuccess --timeout=5m
