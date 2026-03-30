@@ -48,7 +48,8 @@ jobs:
     #   uses: github/codeql-action/autobuild@v4
 
     - run: |
-        go build -o manager ./cmd
+        go build -o bin/manager ./cmd
+        cd kubectl-rabbitmq; go build -o ../bin/kubectl-plugin .
 
     - name: Perform CodeQL Analysis
       uses: github/codeql-action/analyze@v4
