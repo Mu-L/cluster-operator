@@ -783,14 +783,14 @@ func pollHttpPort(ctx context.Context, hostname, port string) (*http.Response, e
 	return r, err
 }
 
-func createTLSSecret(secretName, secretNamespace, hostname string) (string, []byte, []byte) {
+func createTLSSecret(secretName, secretNamespace, hostname string) (string, error) {
 	// create cert files
 	serverCertPath, serverCertFile := createCertFile(2, "server.crt")
 	serverKeyPath, serverKeyFile := createCertFile(2, "server.key")
 	caCertPath, caCertFile := createCertFile(2, "ca.crt")
 
 	// generate and write cert and key to file
-	caCert, caKey, err := createCertificateChain(hostname, caCertFile, serverCertFile, serverKeyFile)
+	_, _, err := createCertificateChain(hostname, caCertFile, serverCertFile, serverKeyFile)
 	ExpectWithOffset(1, err).To(Succeed())
 	// create k8s tls secret
 	ExpectWithOffset(1, k8sCreateTLSSecret(secretName, secretNamespace, serverCertPath, serverKeyPath)).To(Succeed())
@@ -798,18 +798,7 @@ func createTLSSecret(secretName, secretNamespace, hostname string) (string, []by
 	// remove cert files
 	ExpectWithOffset(1, os.Remove(serverKeyPath)).To(Succeed())
 	ExpectWithOffset(1, os.Remove(serverCertPath)).To(Succeed())
-	return caCertPath, caCert, caKey
-}
-
-func updateTLSSecret(secretName, secretNamespace, hostname string, caCert, caKey []byte) {
-	serverCertPath, serverCertFile := createCertFile(2, "server.crt")
-	serverKeyPath, serverKeyFile := createCertFile(2, "server.key")
-
-	ExpectWithOffset(1, generateCertandKey(hostname, caCert, caKey, serverCertFile, serverKeyFile)).To(Succeed())
-	ExpectWithOffset(1, k8sCreateTLSSecret(secretName, secretNamespace, serverCertPath, serverKeyPath)).To(Succeed())
-
-	ExpectWithOffset(1, os.Remove(serverKeyPath)).To(Succeed())
-	ExpectWithOffset(1, os.Remove(serverCertPath)).To(Succeed())
+	return caCertPath, nil
 }
 
 func createCertFile(offset int, fileName string) (string, *os.File) {

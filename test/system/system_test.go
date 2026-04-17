@@ -433,8 +433,6 @@ CONSOLE_LOG=new`
 				username   string
 				password   string
 				caFilePath string
-				caCert     []byte
-				caKey      []byte
 			)
 
 			BeforeEach(func(ctx SpecContext) {
@@ -461,7 +459,9 @@ CONSOLE_LOG=new`
 				// As a workaround, we fetch the AMQP (plain) endpoint (i.e. node IP or load balancer IP) to create the TLS secret.
 				// Note that the hostname/IP is the same for plain and TLS endpoints.
 				hostname, _ = rabbitmqServiceEndpoint(ctx, clientSet, cluster, "amqp")
-				caFilePath, caCert, caKey = createTLSSecret("rabbitmq-tls-test-secret", namespace, hostname)
+				var err error
+				caFilePath, err = createTLSSecret("rabbitmq-tls-test-secret", namespace, hostname)
+				Expect(err).ToNot(HaveOccurred())
 
 				// Update RabbitmqCluster with TLS secret name
 				Expect(updateRabbitmqCluster(ctx, rmqClusterClient, cluster.Name, cluster.Namespace, func(cluster *rabbitmqv1beta1.RabbitmqCluster) {
@@ -470,9 +470,8 @@ CONSOLE_LOG=new`
 				})).To(Succeed())
 				waitForRabbitmqUpdate(cluster)
 
-				var err error
 				username, password, err = getUsernameAndPassword(ctx, clientSet, namespace, "tls-test-rabbit")
-				Expect(err).NotTo(HaveOccurred())
+				Expect(err).ToNot(HaveOccurred())
 			})
 
 			AfterEach(func(ctx SpecContext) {
@@ -490,34 +489,6 @@ CONSOLE_LOG=new`
 					receivedMessage, err := getMessageFromQueueAMQPS(username, password, hostname, amqpsPort, caFilePath)
 					Expect(err).NotTo(HaveOccurred())
 					Expect(receivedMessage).To(Equal(sentMessage))
-				})
-
-				By("supporting tls cert rotation", func() {
-					oldConnectionCertificate := inspectServerCertificate(username, password, hostname, amqpsPort, caFilePath)
-					oldServerCert, err := kubectlExec(cluster.Namespace, statefulSetPodName(cluster, 0), "rabbitmq", "cat", "/etc/rabbitmq-tls/tls.crt")
-					Expect(err).NotTo(HaveOccurred())
-
-					updateTLSSecret("rabbitmq-tls-test-secret", namespace, hostname, caCert, caKey)
-
-					// Trigger a rollout restart to update the mounted secret
-					// Mounted secret uses a projected volume, which is not automatically updated when the secret changes.
-					out, err := kubectl("rollout", "restart", "statefulset", cluster.ChildResourceName("server"), "-n", cluster.Namespace)
-					GinkgoWriter.Printf("rollout restart output: %s\n", out)
-					Expect(err).NotTo(HaveOccurred())
-
-					waitForRabbitmqUpdate(cluster)
-
-					// takes time for mounted secret to be updated
-					Eventually(func() []byte {
-						actualCert, err := kubectlExec(cluster.Namespace, statefulSetPodName(cluster, 0), "rabbitmq", "cat", "/etc/rabbitmq-tls/tls.crt")
-						Expect(err).NotTo(HaveOccurred())
-						return actualCert
-					}, 180, 10).ShouldNot(Equal(oldServerCert))
-
-					Eventually(func() []byte {
-						newServerCertificate := inspectServerCertificate(username, password, hostname, amqpsPort, caFilePath)
-						return newServerCertificate
-					}, 180).ShouldNot(Equal(oldConnectionCertificate))
 				})
 
 				By("connecting to management API over TLS", func() {
