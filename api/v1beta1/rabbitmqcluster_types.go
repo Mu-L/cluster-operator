@@ -29,7 +29,7 @@ const DisableDefaultTopologySpreadAnnotation = "rabbitmq.com/disable-default-top
 // +kubebuilder:printcolumn:name="AllReplicasReady",type="string",JSONPath=".status.conditions[?(@.type == 'AllReplicasReady')].status"
 // +kubebuilder:printcolumn:name="ReconcileSuccess",type="string",JSONPath=".status.conditions[?(@.type == 'ReconcileSuccess')].status"
 // +kubebuilder:printcolumn:name="Age",type="date",JSONPath=".metadata.creationTimestamp"
-// +kubebuilder:resource:shortName={"rmq"},categories=all;rabbitmq
+// +kubebuilder:resource:shortName={"rmq"},categories=rabbitmq
 // RabbitmqCluster is the Schema for the RabbitmqCluster API. Each instance of this object
 // corresponds to a single RabbitMQ cluster.
 type RabbitmqCluster struct {
