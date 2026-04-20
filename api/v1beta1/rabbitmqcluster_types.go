@@ -22,7 +22,12 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-const DisableDefaultTopologySpreadAnnotation = "rabbitmq.com/disable-default-topology-spread-constraints"
+const (
+	DisableDefaultTopologySpreadAnnotation = "rabbitmq.com/disable-default-topology-spread-constraints"
+	RabbitmqVersionAnnotation              = "rabbitmq.com/version"
+	ErlangVersionAnnotation                = "rabbitmq.com/erlang-version"
+	VersionNotAnnotated                    = "VersionNotAnnotated"
+)
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
@@ -533,6 +538,26 @@ func (cluster *RabbitmqCluster) DisableDefaultTopologySpreadConstraints() bool {
 		return true
 	}
 	return false
+}
+
+func (cluster *RabbitmqCluster) GetRabbitMQVersion() string {
+	if cluster.Annotations == nil {
+		return VersionNotAnnotated
+	}
+	if value, ok := cluster.Annotations[RabbitmqVersionAnnotation]; ok {
+		return value
+	}
+	return VersionNotAnnotated
+}
+
+func (cluster *RabbitmqCluster) GetErlangVersion() string {
+	if cluster.Annotations == nil {
+		return VersionNotAnnotated
+	}
+	if value, ok := cluster.Annotations[ErlangVersionAnnotation]; ok {
+		return value
+	}
+	return VersionNotAnnotated
 }
 
 func init() {

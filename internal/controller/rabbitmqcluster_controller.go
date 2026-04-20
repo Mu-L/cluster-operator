@@ -23,6 +23,7 @@ import (
 	"golang.org/x/text/language"
 
 	"github.com/rabbitmq/cluster-operator/v2/internal/metadata"
+	"github.com/rabbitmq/cluster-operator/v2/internal/rabbitmqclient"
 	"github.com/rabbitmq/cluster-operator/v2/internal/resource"
 	"github.com/rabbitmq/cluster-operator/v2/internal/status"
 	k8serrors "k8s.io/apimachinery/pkg/api/errors"
@@ -69,6 +70,7 @@ type RabbitmqClusterReconciler struct {
 	ClusterConfig           *rest.Config
 	Clientset               *kubernetes.Clientset
 	PodExecutor             PodExecutor
+	RabbitmqClientFactory   rabbitmqclient.RabbitmqClientFactory
 	DefaultRabbitmqImage    string
 	DefaultUserUpdaterImage string
 	DefaultImagePullSecrets string
@@ -264,6 +266,14 @@ func (r *RabbitmqClusterReconciler) Reconcile(ctx context.Context, req ctrl.Requ
 		// Don't fail reconciliation if quorum check fails
 	}
 
+	// Annotate RabbitMQ and Erlang versions on the custom resource
+	if requeueAfter, err := r.reconcileRabbitmqVersionAnnotation(ctx, rabbitmqCluster); err != nil || requeueAfter > 0 {
+		if err != nil {
+			r.setReconcileSuccess(ctx, rabbitmqCluster, corev1.ConditionFalse, "FailedVersionAnnotation", err.Error())
+		}
+		return ctrl.Result{RequeueAfter: requeueAfter}, err
+	}
+
 	// By this point the StatefulSet may have finished deploying. Run any
 	// post-deploy steps if so, or requeue until the deployment is finished.
 	if requeueAfter, err := r.runRabbitmqCLICommandsIfAnnotated(ctx, rabbitmqCluster); err != nil || requeueAfter > 0 {
@@ -393,6 +403,10 @@ func (r *RabbitmqClusterReconciler) setReconcileSuccess(ctx context.Context, rab
 }
 
 func (r *RabbitmqClusterReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	if r.RabbitmqClientFactory == nil {
+		r.RabbitmqClientFactory = &rabbitmqclient.DefaultRabbitmqClientFactory{}
+	}
+
 	for _, resource := range []client.Object{&appsv1.StatefulSet{}, &corev1.ConfigMap{}, &corev1.Service{}} {
 		if err := mgr.GetFieldIndexer().IndexField(context.Background(), resource, ownerKey, addResourceToIndex); err != nil {
 			return err

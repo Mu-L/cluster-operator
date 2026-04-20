@@ -8,7 +8,6 @@ import (
 	"sync"
 
 	rabbitmqv1beta1 "github.com/rabbitmq/cluster-operator/v2/api/v1beta1"
-	"github.com/rabbitmq/cluster-operator/v2/internal/rabbitmqclient"
 	"github.com/rabbitmq/cluster-operator/v2/internal/resource"
 	corev1 "k8s.io/api/core/v1"
 	discoveryv1 "k8s.io/api/discovery/v1"
@@ -107,7 +106,7 @@ func (r *RabbitmqClusterReconciler) checkNodeQuorumStatus(ctx context.Context, r
 	logger := ctrl.LoggerFrom(ctx)
 
 	// Get client for this specific pod
-	rabbitClient, err := rabbitmqclient.GetRabbitmqClientForPod(ctx, r.APIReader, rmq, podName)
+	rabbitClient, err := r.RabbitmqClientFactory.GetClientForPod(ctx, r.APIReader, rmq, podName)
 	if err != nil {
 		logger.V(1).Info("Failed to get client for pod", "pod", podName, "error", err)
 		return nodeQuorumCheck{

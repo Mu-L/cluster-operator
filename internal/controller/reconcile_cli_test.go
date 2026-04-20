@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	rabbithole "github.com/michaelklishin/rabbit-hole/v2"
 	"sigs.k8s.io/controller-runtime/pkg/envtest/komega"
 
 	"k8s.io/apimachinery/pkg/types"
@@ -328,6 +329,91 @@ var _ = Describe("Reconcile CLI", func() {
 					Expect(fakeExecutor.ExecutedCommands()).NotTo(ContainElement(command{"sh", "-c", "rabbitmq-queues rebalance all"}))
 				})
 			})
+		})
+	})
+
+	When("the cluster needs version annotations", func() {
+		BeforeEach(func() {
+			cluster = &rabbitmqv1beta1.RabbitmqCluster{
+				ObjectMeta: metav1.ObjectMeta{
+					Name:      fmt.Sprintf("rabbitmq-version-annotation-%d", time.Now().UnixNano()),
+					Namespace: defaultNamespace,
+				},
+				Spec: rabbitmqv1beta1.RabbitmqClusterSpec{
+					Replicas: ptr.To(int32(1)),
+				},
+			}
+			Expect(client.Create(ctx, cluster)).To(Succeed())
+			waitForClusterCreation(ctx, cluster, client)
+		})
+
+		It("does not fetch version if statefulset is not ready", func() {
+			sts := statefulSet(ctx, cluster)
+			sts.Status.ReadyReplicas = 0
+			sts.Status.Replicas = 1
+			Expect(client.Status().Update(ctx, sts)).To(Succeed())
+
+			// Wait for the controller to reconcile and requeue because replicas are not ready
+			// We verify the annotation is not set
+			Consistently(func() map[string]string {
+				rmq := &rabbitmqv1beta1.RabbitmqCluster{}
+				err := client.Get(ctx, types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace}, rmq)
+				Expect(err).ToNot(HaveOccurred())
+				return rmq.ObjectMeta.Annotations
+			}, 5).ShouldNot(HaveKey(rabbitmqv1beta1.RabbitmqVersionAnnotation))
+		})
+
+		It("attempts to fetch version if statefulset is ready and handles error gracefully", func() {
+			fakeRabbitmqFactory.client = &fakeRabbitmqClient{
+				err: fmt.Errorf("connection refused"),
+			}
+
+			sts := statefulSet(ctx, cluster)
+			sts.Status.ReadyReplicas = 1
+			sts.Status.Replicas = 1
+			sts.Status.CurrentReplicas = 1
+			sts.Status.UpdatedReplicas = 1
+			sts.Status.CurrentRevision = sts.Status.UpdateRevision
+			Expect(client.Status().Update(ctx, sts)).To(Succeed())
+
+			// Wait for the controller to reconcile. It will try to fetch the version,
+			// but since the client returns an error, it will fail gracefully.
+			// It will log the error but will not crash.
+			Consistently(func() map[string]string {
+				rmq := &rabbitmqv1beta1.RabbitmqCluster{}
+				err := client.Get(ctx, types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace}, rmq)
+				Expect(err).ToNot(HaveOccurred())
+				return rmq.ObjectMeta.Annotations
+			}, 3).ShouldNot(HaveKey(rabbitmqv1beta1.RabbitmqVersionAnnotation))
+		})
+
+		It("fetches and sets version when overview call is successful", func() {
+			fakeRabbitmqFactory.client = &fakeRabbitmqClient{
+				overview: &rabbithole.Overview{
+					RabbitMQVersion: "3.13.0",
+					ErlangVersion:   "26.2.1",
+				},
+				err: nil,
+			}
+
+			sts := statefulSet(ctx, cluster)
+			sts.Status.ReadyReplicas = 1
+			sts.Status.Replicas = 1
+			sts.Status.CurrentReplicas = 1
+			sts.Status.UpdatedReplicas = 1
+			sts.Status.CurrentRevision = sts.Status.UpdateRevision
+			Expect(client.Status().Update(ctx, sts)).To(Succeed())
+
+			// The controller should reconcile and update the annotations
+			Eventually(func() map[string]string {
+				rmq := &rabbitmqv1beta1.RabbitmqCluster{}
+				err := client.Get(ctx, types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace}, rmq)
+				Expect(err).ToNot(HaveOccurred())
+				return rmq.ObjectMeta.Annotations
+			}, 5).Should(And(
+				HaveKeyWithValue(rabbitmqv1beta1.RabbitmqVersionAnnotation, "3.13.0"),
+				HaveKeyWithValue(rabbitmqv1beta1.ErlangVersionAnnotation, "26.2.1"),
+			))
 		})
 	})
 })

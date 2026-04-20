@@ -162,6 +162,50 @@ var _ = Describe("RabbitmqCluster", func() {
 			})
 		})
 
+		Describe("GetRabbitMQVersion", func() {
+			It("returns the correct version when annotated", func() {
+				resource := generateRabbitmqClusterObject("rabbit-version")
+				resource.Annotations = map[string]string{
+					RabbitmqVersionAnnotation: "3.13.0",
+				}
+				Expect(resource.GetRabbitMQVersion()).To(Equal("3.13.0"))
+			})
+
+			It("returns VersionNotAnnotated when annotation is missing", func() {
+				resource := generateRabbitmqClusterObject("rabbit-version-missing")
+				resource.Annotations = map[string]string{}
+				Expect(resource.GetRabbitMQVersion()).To(Equal(VersionNotAnnotated))
+			})
+
+			It("returns VersionNotAnnotated when annotations are nil", func() {
+				resource := generateRabbitmqClusterObject("rabbit-version-nil")
+				resource.Annotations = nil
+				Expect(resource.GetRabbitMQVersion()).To(Equal(VersionNotAnnotated))
+			})
+		})
+
+		Describe("GetErlangVersion", func() {
+			It("returns the correct version when annotated", func() {
+				resource := generateRabbitmqClusterObject("erlang-version")
+				resource.Annotations = map[string]string{
+					ErlangVersionAnnotation: "26.2.1",
+				}
+				Expect(resource.GetErlangVersion()).To(Equal("26.2.1"))
+			})
+
+			It("returns VersionNotAnnotated when annotation is missing", func() {
+				resource := generateRabbitmqClusterObject("erlang-version-missing")
+				resource.Annotations = map[string]string{}
+				Expect(resource.GetErlangVersion()).To(Equal(VersionNotAnnotated))
+			})
+
+			It("returns VersionNotAnnotated when annotations are nil", func() {
+				resource := generateRabbitmqClusterObject("erlang-version-nil")
+				resource.Annotations = nil
+				Expect(resource.GetErlangVersion()).To(Equal(VersionNotAnnotated))
+			})
+		})
+
 		Context("Default settings", func() {
 			var (
 				rmqClusterInstance      RabbitmqCluster
