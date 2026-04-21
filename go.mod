@@ -10,7 +10,7 @@ require (
 	github.com/michaelklishin/rabbit-hole/v2 v2.16.0
 	github.com/onsi/ginkgo/v2 v2.28.1
 	github.com/onsi/gomega v1.39.1
-	github.com/rabbitmq/amqp091-go v1.10.0
+	github.com/rabbitmq/amqp091-go v1.11.0
 	github.com/rabbitmq/rabbitmq-stream-go-client v1.8.0
 	golang.org/x/mod v0.35.0
 	golang.org/x/text v0.36.0
