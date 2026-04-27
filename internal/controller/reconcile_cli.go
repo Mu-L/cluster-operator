@@ -142,10 +142,6 @@ func (r *RabbitmqClusterReconciler) reconcileRabbitmqVersionAnnotation(ctx conte
 		return 15 * time.Second, nil
 	}
 
-	if rmq.Annotations != nil && rmq.Annotations[rabbitmqv1beta1.RabbitmqVersionAnnotation] != "" && rmq.Annotations[rabbitmqv1beta1.ErlangVersionAnnotation] != "" {
-		return 0, nil
-	}
-
 	podName := fmt.Sprintf("%s-0", rmq.ChildResourceName("server"))
 	rabbitClient, err := r.RabbitmqClientFactory.GetClientForPod(ctx, r.APIReader, rmq, podName)
 	if err != nil {
@@ -156,6 +152,12 @@ func (r *RabbitmqClusterReconciler) reconcileRabbitmqVersionAnnotation(ctx conte
 	overview, err := rabbitClient.Overview()
 	if err != nil {
 		logger.V(1).Info("Failed to get overview from pod", "pod", podName, "error", err)
+		return 0, nil
+	}
+
+	if rmq.Annotations != nil &&
+		rmq.Annotations[rabbitmqv1beta1.RabbitmqVersionAnnotation] == overview.RabbitMQVersion &&
+		rmq.Annotations[rabbitmqv1beta1.ErlangVersionAnnotation] == overview.ErlangVersion {
 		return 0, nil
 	}
 

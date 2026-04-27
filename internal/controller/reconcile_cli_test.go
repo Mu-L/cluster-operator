@@ -415,5 +415,42 @@ var _ = Describe("Reconcile CLI", func() {
 				HaveKeyWithValue(rabbitmqv1beta1.ErlangVersionAnnotation, "26.2.1"),
 			))
 		})
+
+		It("updates annotations when RabbitMQ and Erlang versions change after upgrade", func() {
+			rmq := &rabbitmqv1beta1.RabbitmqCluster{}
+			Expect(client.Get(ctx, types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace}, rmq)).To(Succeed())
+			if rmq.Annotations == nil {
+				rmq.Annotations = make(map[string]string)
+			}
+			rmq.Annotations[rabbitmqv1beta1.RabbitmqVersionAnnotation] = "3.12.0"
+			rmq.Annotations[rabbitmqv1beta1.ErlangVersionAnnotation] = "26.1.0"
+			Expect(client.Update(ctx, rmq)).To(Succeed())
+
+			fakeRabbitmqFactory.client = &fakeRabbitmqClient{
+				overview: &rabbithole.Overview{
+					RabbitMQVersion: "3.13.0",
+					ErlangVersion:   "26.2.1",
+				},
+				err: nil,
+			}
+
+			sts := statefulSet(ctx, cluster)
+			sts.Status.ReadyReplicas = 1
+			sts.Status.Replicas = 1
+			sts.Status.CurrentReplicas = 1
+			sts.Status.UpdatedReplicas = 1
+			sts.Status.CurrentRevision = sts.Status.UpdateRevision
+			Expect(client.Status().Update(ctx, sts)).To(Succeed())
+
+			Eventually(func() map[string]string {
+				rmq := &rabbitmqv1beta1.RabbitmqCluster{}
+				err := client.Get(ctx, types.NamespacedName{Name: cluster.Name, Namespace: cluster.Namespace}, rmq)
+				Expect(err).ToNot(HaveOccurred())
+				return rmq.ObjectMeta.Annotations
+			}, 5).Should(And(
+				HaveKeyWithValue(rabbitmqv1beta1.RabbitmqVersionAnnotation, "3.13.0"),
+				HaveKeyWithValue(rabbitmqv1beta1.ErlangVersionAnnotation, "26.2.1"),
+			))
+		})
 	})
 })
