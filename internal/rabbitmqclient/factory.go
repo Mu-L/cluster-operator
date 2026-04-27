@@ -12,6 +12,7 @@ package rabbitmqclient
 
 import (
 	"context"
+	"fmt"
 
 	rabbithole "github.com/michaelklishin/rabbit-hole/v2"
 	rabbitmqv1beta1 "github.com/rabbitmq/cluster-operator/v2/api/v1beta1"
@@ -34,5 +35,23 @@ type DefaultRabbitmqClientFactory struct{}
 
 // GetClientForPod creates a real rabbithole client for a specific pod.
 func (f *DefaultRabbitmqClientFactory) GetClientForPod(ctx context.Context, k8sClient client.Reader, rmq *rabbitmqv1beta1.RabbitmqCluster, podName string) (RabbitmqClient, error) {
-	return GetRabbitmqClientForPod(ctx, k8sClient, rmq, podName)
+	info, err := getClientInfoForPod(ctx, k8sClient, rmq, podName)
+	if err != nil {
+		return nil, err
+	}
+
+	var rabbitmqClient *rabbithole.Client
+	if rmq.Spec.TLS.DisableNonTLSListeners {
+		rabbitmqClient, err = rabbithole.NewTLSClient(info.BaseURL, info.Username, info.Password, info.Transport)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create TLS rabbithole client for pod: %w", err)
+		}
+	} else {
+		rabbitmqClient, err = rabbithole.NewClient(info.BaseURL, info.Username, info.Password)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create rabbithole client for pod: %w", err)
+		}
+	}
+
+	return rabbitmqClient, nil
 }
