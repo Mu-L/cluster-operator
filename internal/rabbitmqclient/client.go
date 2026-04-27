@@ -31,8 +31,9 @@ type ClientInfo struct {
 	Transport *http.Transport
 }
 
+// getClientInfoForPod creates ClientInfo for a specific pod using its stable DNS name.
 // This is useful for checking individual pods instead of going through the service.
-func GetClientInfoForPod(ctx context.Context, k8sClient client.Reader, rmq *rabbitmqv1beta1.RabbitmqCluster, podName string) (*ClientInfo, error) {
+func getClientInfoForPod(ctx context.Context, k8sClient client.Reader, rmq *rabbitmqv1beta1.RabbitmqCluster, podName string) (*ClientInfo, error) {
 	// Fetch the default user secret
 	secretName := rmq.ChildResourceName("default-user")
 	secret := &corev1.Secret{}
