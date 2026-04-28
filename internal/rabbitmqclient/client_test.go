@@ -72,7 +72,7 @@ var _ = Describe("RabbitMQ Client", func() {
 
 			It("returns client info with correct credentials", func() {
 				podName := "test-cluster-server-0"
-				info, err := GetClientInfoForPod(ctx, k8sClient, rmq, podName)
+				info, err := getClientInfoForPod(ctx, k8sClient, rmq, podName)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(info).NotTo(BeNil())
 				Expect(info.Username).To(Equal("test-user"))
@@ -81,7 +81,7 @@ var _ = Describe("RabbitMQ Client", func() {
 
 			It("returns the correct base URL for non-TLS with pod DNS name", func() {
 				podName := "test-cluster-server-0"
-				info, err := GetClientInfoForPod(ctx, k8sClient, rmq, podName)
+				info, err := getClientInfoForPod(ctx, k8sClient, rmq, podName)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(info.BaseURL).To(Equal("http://test-cluster-server-0.test-cluster-nodes.test-namespace.svc:15672"))
 			})
@@ -90,7 +90,7 @@ var _ = Describe("RabbitMQ Client", func() {
 				rmq.Spec.TLS.SecretName = "tls-secret"
 				rmq.Spec.TLS.DisableNonTLSListeners = true
 				podName := "test-cluster-server-1"
-				info, err := GetClientInfoForPod(ctx, k8sClient, rmq, podName)
+				info, err := getClientInfoForPod(ctx, k8sClient, rmq, podName)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(info.BaseURL).To(Equal("https://test-cluster-server-1.test-cluster-nodes.test-namespace.svc:15671"))
 			})
@@ -99,7 +99,7 @@ var _ = Describe("RabbitMQ Client", func() {
 				rmq.Spec.TLS.SecretName = "tls-secret"
 				rmq.Spec.TLS.DisableNonTLSListeners = true
 				podName := "test-cluster-server-0"
-				info, err := GetClientInfoForPod(ctx, k8sClient, rmq, podName)
+				info, err := getClientInfoForPod(ctx, k8sClient, rmq, podName)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(info.Transport).NotTo(BeNil())
 				Expect(info.Transport.TLSClientConfig).NotTo(BeNil())
@@ -108,7 +108,7 @@ var _ = Describe("RabbitMQ Client", func() {
 
 			It("returns nil transport for non-TLS", func() {
 				podName := "test-cluster-server-0"
-				info, err := GetClientInfoForPod(ctx, k8sClient, rmq, podName)
+				info, err := getClientInfoForPod(ctx, k8sClient, rmq, podName)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(info.Transport).To(BeNil())
 			})
@@ -124,15 +124,18 @@ var _ = Describe("RabbitMQ Client", func() {
 
 			It("returns an error", func() {
 				podName := "test-cluster-server-0"
-				_, err := GetClientInfoForPod(ctx, k8sClient, rmq, podName)
+				_, err := getClientInfoForPod(ctx, k8sClient, rmq, podName)
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("failed to get default user secret"))
 			})
 		})
 	})
 
-	Describe("GetRabbitmqClientForPod", func() {
+	Describe("DefaultRabbitmqClientFactory", func() {
+		var factory RabbitmqClientFactory
+
 		BeforeEach(func() {
+			factory = &DefaultRabbitmqClientFactory{}
 			k8sClient = fake.NewClientBuilder().
 				WithScheme(scheme).
 				WithObjects(rmq).
@@ -143,7 +146,7 @@ var _ = Describe("RabbitMQ Client", func() {
 		Context("when TLS is disabled", func() {
 			It("returns a non-TLS client", func() {
 				podName := "test-cluster-server-0"
-				client, err := GetRabbitmqClientForPod(ctx, k8sClient, rmq, podName)
+				client, err := factory.GetClientForPod(ctx, k8sClient, rmq, podName)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(client).NotTo(BeNil())
 			})
@@ -154,7 +157,7 @@ var _ = Describe("RabbitMQ Client", func() {
 				rmq.Spec.TLS.SecretName = "tls-secret"
 				rmq.Spec.TLS.DisableNonTLSListeners = true
 				podName := "test-cluster-server-0"
-				client, err := GetRabbitmqClientForPod(ctx, k8sClient, rmq, podName)
+				client, err := factory.GetClientForPod(ctx, k8sClient, rmq, podName)
 				Expect(err).NotTo(HaveOccurred())
 				Expect(client).NotTo(BeNil())
 			})
@@ -170,7 +173,7 @@ var _ = Describe("RabbitMQ Client", func() {
 
 			It("returns an error", func() {
 				podName := "test-cluster-server-0"
-				_, err := GetRabbitmqClientForPod(ctx, k8sClient, rmq, podName)
+				_, err := factory.GetClientForPod(ctx, k8sClient, rmq, podName)
 				Expect(err).To(HaveOccurred())
 				Expect(err.Error()).To(ContainSubstring("failed to get default user secret"))
 			})

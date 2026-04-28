@@ -20,10 +20,12 @@ import (
 
 	"k8s.io/client-go/util/retry"
 
+	rabbithole "github.com/michaelklishin/rabbit-hole/v2"
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	rabbitmqv1beta1 "github.com/rabbitmq/cluster-operator/v2/api/v1beta1"
 	controllers "github.com/rabbitmq/cluster-operator/v2/internal/controller"
+	"github.com/rabbitmq/cluster-operator/v2/internal/rabbitmqclient"
 
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
@@ -44,13 +46,14 @@ const (
 )
 
 var (
-	testEnv         *envtest.Environment
-	client          runtimeClient.Client
-	clientSet       *kubernetes.Clientset
-	fakeExecutor    *fakePodExecutor
-	ctx             context.Context
-	cancel          context.CancelFunc
-	updateWithRetry = func(cr *rabbitmqv1beta1.RabbitmqCluster, mutateFn func(r *rabbitmqv1beta1.RabbitmqCluster)) error {
+	testEnv             *envtest.Environment
+	client              runtimeClient.Client
+	clientSet           *kubernetes.Clientset
+	fakeExecutor        *fakePodExecutor
+	fakeRabbitmqFactory *fakeRabbitmqClientFactory
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	updateWithRetry     = func(cr *rabbitmqv1beta1.RabbitmqCluster, mutateFn func(r *rabbitmqv1beta1.RabbitmqCluster)) error {
 		return retry.RetryOnConflict(retry.DefaultRetry, func() error {
 			if err := client.Get(ctx, runtimeClient.ObjectKeyFromObject(cr), cr); err != nil {
 				return err
@@ -98,6 +101,8 @@ var _ = BeforeSuite(func() {
 	Expect(err).ToNot(HaveOccurred())
 
 	fakeExecutor = &fakePodExecutor{}
+	fakeRabbitmqFactory = &fakeRabbitmqClientFactory{}
+
 	err = (&controllers.RabbitmqClusterReconciler{
 		Client:                  mgr.GetClient(),
 		APIReader:               mgr.GetAPIReader(),
@@ -106,6 +111,7 @@ var _ = BeforeSuite(func() {
 		Namespace:               "rabbitmq-system",
 		Clientset:               clientSet,
 		PodExecutor:             fakeExecutor,
+		RabbitmqClientFactory:   fakeRabbitmqFactory,
 		DefaultRabbitmqImage:    defaultRabbitmqImage,
 		ControlRabbitmqImage:    false,
 		DefaultUserUpdaterImage: defaultUserUpdaterImage,
@@ -143,4 +149,39 @@ func (f *fakePodExecutor) ExecutedCommands() []command { return f.executedComman
 
 func (f *fakePodExecutor) ResetExecutedCommands() { f.executedCommands = []command{} }
 
-var _ = AfterEach(func() { fakeExecutor.ResetExecutedCommands() })
+type fakeRabbitmqClientFactory struct {
+	client *fakeRabbitmqClient
+}
+
+func (f *fakeRabbitmqClientFactory) GetClientForPod(ctx context.Context, k8sClient runtimeClient.Reader, rmq *rabbitmqv1beta1.RabbitmqCluster, podName string) (rabbitmqclient.RabbitmqClient, error) {
+	if f.client == nil {
+		return &fakeRabbitmqClient{}, nil
+	}
+	return f.client, nil
+}
+
+type fakeRabbitmqClient struct {
+	overview *rabbithole.Overview
+	err      error
+}
+
+func (f *fakeRabbitmqClient) Overview() (*rabbithole.Overview, error) {
+	if f.overview == nil && f.err == nil {
+		return &rabbithole.Overview{
+			RabbitMQVersion: "3.13.0",
+			ErlangVersion:   "26.2.1",
+		}, nil
+	}
+	return f.overview, f.err
+}
+
+func (f *fakeRabbitmqClient) HealthCheckNodeIsQuorumCritical() (rabbithole.HealthCheckStatus, error) {
+	// Not used in reconcile_cli_test, mock realistically
+	res := rabbithole.HealthCheckStatus{Status: "ok"}
+	return res, nil
+}
+
+var _ = AfterEach(func() {
+	fakeExecutor.ResetExecutedCommands()
+	fakeRabbitmqFactory.client = nil
+})

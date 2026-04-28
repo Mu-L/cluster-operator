@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"net/http"
 
-	rabbithole "github.com/michaelklishin/rabbit-hole/v2"
 	rabbitmqv1beta1 "github.com/rabbitmq/cluster-operator/v2/api/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -32,33 +31,9 @@ type ClientInfo struct {
 	Transport *http.Transport
 }
 
-// GetRabbitmqClientForPod creates a rabbithole client for a specific pod using its stable DNS name.
-// It fetches credentials from the default user secret and connects directly to the pod via its stable DNS.
-func GetRabbitmqClientForPod(ctx context.Context, k8sClient client.Reader, rmq *rabbitmqv1beta1.RabbitmqCluster, podName string) (*rabbithole.Client, error) {
-	info, err := GetClientInfoForPod(ctx, k8sClient, rmq, podName)
-	if err != nil {
-		return nil, err
-	}
-
-	var rabbitmqClient *rabbithole.Client
-	if rmq.Spec.TLS.DisableNonTLSListeners {
-		rabbitmqClient, err = rabbithole.NewTLSClient(info.BaseURL, info.Username, info.Password, info.Transport)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create TLS rabbithole client for pod: %w", err)
-		}
-	} else {
-		rabbitmqClient, err = rabbithole.NewClient(info.BaseURL, info.Username, info.Password)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create rabbithole client for pod: %w", err)
-		}
-	}
-
-	return rabbitmqClient, nil
-}
-
-// GetClientInfoForPod creates ClientInfo for a specific pod using its stable DNS name.
+// getClientInfoForPod creates ClientInfo for a specific pod using its stable DNS name.
 // This is useful for checking individual pods instead of going through the service.
-func GetClientInfoForPod(ctx context.Context, k8sClient client.Reader, rmq *rabbitmqv1beta1.RabbitmqCluster, podName string) (*ClientInfo, error) {
+func getClientInfoForPod(ctx context.Context, k8sClient client.Reader, rmq *rabbitmqv1beta1.RabbitmqCluster, podName string) (*ClientInfo, error) {
 	// Fetch the default user secret
 	secretName := rmq.ChildResourceName("default-user")
 	secret := &corev1.Secret{}

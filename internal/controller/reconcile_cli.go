@@ -130,3 +130,48 @@ func allReplicasReadyAndUpdated(sts *appsv1.StatefulSet) bool {
 func statefulSetBeingUpdated(sts *appsv1.StatefulSet) bool {
 	return sts.Status.CurrentRevision != sts.Status.UpdateRevision
 }
+
+func (r *RabbitmqClusterReconciler) reconcileRabbitmqVersionAnnotation(ctx context.Context, rmq *rabbitmqv1beta1.RabbitmqCluster) (requeueAfter time.Duration, err error) {
+	logger := ctrl.LoggerFrom(ctx)
+	sts, err := r.statefulSet(ctx, rmq)
+	if err != nil {
+		return 0, err
+	}
+	if !allReplicasReadyAndUpdated(sts) {
+		logger.V(1).Info("not all replicas ready yet; requeuing request to update version annotations")
+		return 15 * time.Second, nil
+	}
+
+	podName := fmt.Sprintf("%s-0", rmq.ChildResourceName("server"))
+	rabbitClient, err := r.RabbitmqClientFactory.GetClientForPod(ctx, r.APIReader, rmq, podName)
+	if err != nil {
+		logger.V(1).Info("Failed to get client for pod", "pod", podName, "error", err)
+		return 0, nil
+	}
+
+	overview, err := rabbitClient.Overview()
+	if err != nil {
+		logger.V(1).Info("Failed to get overview from pod", "pod", podName, "error", err)
+		return 0, nil
+	}
+
+	if rmq.Annotations != nil &&
+		rmq.Annotations[rabbitmqv1beta1.RabbitmqVersionAnnotation] == overview.RabbitMQVersion &&
+		rmq.Annotations[rabbitmqv1beta1.ErlangVersionAnnotation] == overview.ErlangVersion {
+		return 0, nil
+	}
+
+	if rmq.Annotations == nil {
+		rmq.Annotations = make(map[string]string)
+	}
+
+	rmq.Annotations[rabbitmqv1beta1.RabbitmqVersionAnnotation] = overview.RabbitMQVersion
+	rmq.Annotations[rabbitmqv1beta1.ErlangVersionAnnotation] = overview.ErlangVersion
+
+	if err := r.Update(ctx, rmq); err != nil {
+		return 0, fmt.Errorf("failed to update RabbitmqCluster with version annotations: %w", err)
+	}
+
+	logger.Info("successfully annotated RabbitMQ and Erlang versions", "rabbitmq_version", overview.RabbitMQVersion, "erlang_version", overview.ErlangVersion)
+	return 0, nil
+}
