@@ -66,8 +66,8 @@ make generate   # Regenerate DeepCopy methods
 
 **After editing `*.go` files:**
 ```
-make lint-fix   # Auto-fix code style
-make test       # Run unit tests
+make fmt vet    # or: make checks  (adds govulncheck)
+make just-unit-tests   # fast: ginkgo only, no codegen
 ```
 
 ## CLI Commands Cheat Sheet
@@ -141,14 +141,40 @@ kubebuilder create webhook \
   --external-api-module=github.com/cert-manager/cert-manager
 ```
 
-## Testing & Development
+## Makefile (tests & tooling)
 
-```bash
-make test              # Run unit tests (uses envtest: real K8s API + etcd)
-make run               # Run locally (uses current kubeconfig context)
-```
+Run `make help` for all targets with descriptions. Tool binaries default to `./bin` (`LOCALBIN`, override if needed).
 
-Tests use **Ginkgo + Gomega** (BDD style). Check `suite_test.go` for setup.
+### Test targets
+
+| Target | What it does |
+|--------|----------------|
+| `make unit-tests` | Installs tools, `controller-gen`, kubebuilder assets, `generate`/`fmt`/`vet`/`manifests`, then Ginkgo **without** `integration` label on `api/`, `internal/`, `pkg/`. |
+| `make just-unit-tests` | Ginkgo only (no regen). Same suites/label as above. |
+| `make integration-tests` | Same preamble as unit-tests, then controller tests **with** `integration` label under `internal/controller/`. |
+| `make just-integration-tests` | Ginkgo integration only (still needs `kubebuilder-assets`). |
+| `make tests` | Runs `unit-tests`, `integration-tests`, `system-tests`, `kubectl-plugin-tests` in sequence. |
+| `make system-tests` | Ginkgo on `test/system/`; needs a real cluster (`~/.kube/config`). |
+| `make kubectl-plugin-tests` | Bats tests for kubectl plugin (`./bin/kubectl-rabbitmq.bats`; expects `bin/kubectl-rabbitmq`). |
+| `make test-e2e` | Creates/uses Kind cluster `KIND_CLUSTER`, runs `go test -tags=e2e ./test/e2e/ -v -ginkgo.v`, then **deletes** the cluster. E2e harness may skip cert-manager if env `CERT_MANAGER_INSTALL_SKIP=true` (see Makefile comment). |
+| `make setup-test-e2e` / `make cleanup-test-e2e` | Create or delete the e2e Kind cluster only. |
+
+**Envtest / kubebuilder:** `kubebuilder-assets` and `unit-tests`/`integration-tests` download apiserver+etcd via `setup-envtest`; binaries live under `testbin/` (`LOCAL_TESTBIN`). `KUBEBUILDER_ASSETS` is set by the Makefile from `ENVTEST_K8S_VERSION` (derived from `k8s.io/api` in go.mod). If asset setup fails, try `make clean-testbin` then retry.
+
+### Useful variables (override on CLI: `make VAR=value`)
+
+- **`GINKGO_PROCS`** (default `4`) — Ginkgo parallelism for unit/integration/system.
+- **`GINKGO_EXTRA`** — Extra args appended to every Ginkgo invocation.
+- **`K8S_OPERATOR_NAMESPACE`** (default `rabbitmq-system`) — operator namespace for local run and system tests.
+- **`SYSTEM_TEST_NAMESPACE`** (default `cluster-operator-system-tests`) — namespace for system tests.
+- **`RABBITMQ_SERVICE_TYPE`** (default `NodePort`) — passed to system tests.
+- **`KIND_CLUSTER`** (default `cluster-operator-e2e`) — Kind cluster name for e2e.
+- **`IMG`** — image for `deploy` / `deploy-secure-metrics` (default `ghcr.io/rabbitmq/cluster-operator:latest`).
+- **`CONTAINER`** (default `docker`) — container CLI for image builds.
+
+**Other dev targets:** `make checks` (`fmt`, `vet`, `govulncheck`), `make install-tools`, `make manager`, `make run` (regenerates, checks, installs CRDs, deploys namespace RBAC, then `go run` with `K8S_OPERATOR_NAMESPACE`; optional `OPERATOR_ARGS` for extra flags).
+
+Tests use **Ginkgo + Gomega**. Check `suite_test.go` files for suite setup.
 
 ## Deployment Workflow
 
@@ -234,19 +260,11 @@ Generated code includes: status conditions (`metav1.Condition`), finalizers, own
 ### Option 1: YAML Bundle (Kustomize)
 
 ```bash
-# Generate dist/install.yaml from Kustomize manifests
-make build-installer IMG=<registry>/<project>:tag
+# Generate release manifests under releases/ (see Makefile: generate-installation-manifest)
+make generate-installation-manifest
 ```
 
-**Key points:**
-- The `dist/install.yaml` is generated from Kustomize manifests (CRDs, RBAC, Deployment)
-- Commit this file to your repository for easy distribution
-- Users only need `kubectl` to install (no additional tools required)
-
-**Example:** Users install with a single command:
-```bash
-kubectl apply -f https://raw.githubusercontent.com/<org>/<repo>/<tag>/dist/install.yaml
-```
+**Key points:** This repo emits installation YAML under `releases/` (not `dist/install.yaml`). Adjust URLs/docs to match your publishing layout.
 
 ### Option 2: Helm Chart
 
